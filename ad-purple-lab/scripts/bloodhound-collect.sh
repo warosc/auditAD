@@ -111,13 +111,33 @@ if [[ ${BHEXIT} -eq 0 ]]; then
     info "Archivos generados:"
     ls -lh "${OUTPUT_DIR}/"
     echo ""
-    info "Para importar en BloodHound:"
-    info "  1. Abre BloodHound (conectado a Neo4j en localhost:7474)"
-    info "  2. Upload Data → selecciona los archivos .zip o .json en ${OUTPUT_DIR}"
-    info "  3. Espera la importación y usa las queries predefinidas"
-    echo ""
-    info "Para importar directamente vía API de Neo4j, usa BloodHound CE o"
-    info "la interfaz web de Neo4j en http://localhost:7474"
+
+    # ── Auto-importar en Neo4j ────────────────────────────────
+    NEO4J_BOLT="${NEO4J_BOLT:-bolt://neo4j:7687}"
+    NEO4J_USER="${NEO4J_USER:-neo4j}"
+    NEO4J_PASS="${NEO4J_AUTH:-neo4j/ChangeThisNeo4jPass123!}"
+    # NEO4J_AUTH viene como "usuario/password" — extraer solo password
+    NEO4J_PASS="${NEO4J_PASS#*/}"
+
+    ZIP_FILE="$(ls "${OUTPUT_DIR}"/*.zip 2>/dev/null | head -1)"
+
+    if [[ -n "${ZIP_FILE}" ]]; then
+        info "Importando datos en Neo4j: ${NEO4J_BOLT} ..."
+        if python3 /workspace/scripts/import-bloodhound.py \
+            --bolt "${NEO4J_BOLT}" \
+            --user "${NEO4J_USER}" \
+            --password "${NEO4J_PASS}" \
+            "${ZIP_FILE}" 2>&1; then
+            ok "Datos importados en Neo4j correctamente."
+            info "Abre Neo4j Browser: http://localhost:7474"
+            info "Query para ver todos los nodos: MATCH (n) RETURN n LIMIT 100"
+        else
+            warn "Auto-import falló. Importa manualmente:"
+            warn "  python3 /workspace/scripts/import-bloodhound.py --bolt ${NEO4J_BOLT} --user ${NEO4J_USER} --password '<password>' ${ZIP_FILE}"
+        fi
+    else
+        warn "No se encontró ZIP para importar en ${OUTPUT_DIR}"
+    fi
 else
     fail "bloodhound-python terminó con código de error ${BHEXIT}"
     fail "Revisa el log: ${OUTPUT_DIR}/bloodhound_run_${TIMESTAMP}.log"
