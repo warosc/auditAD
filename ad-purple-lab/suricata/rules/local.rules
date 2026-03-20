@@ -1,0 +1,28 @@
+# ============================================================
+# Reglas Suricata - AD Purple Lab
+# Orientadas a detección defensiva en entornos de laboratorio AD.
+# Todas las reglas son de ALERTA (no bloquean tráfico).
+# ============================================================
+
+# ── LDAP ──────────────────────────────────────────────────────
+alert tcp $HOME_NET any -> $DC_NET 389 (msg:"AD-LAB LDAP Anonymous Bind Attempt"; flow:to_server,established; content:"|30|"; content:"|02 01 01 60|"; within:20; content:"|80 00|"; within:10; classtype:protocol-command-decode; sid:9000001; rev:1;)
+alert tcp $HOME_NET any -> $DC_NET 389 (msg:"AD-LAB LDAP RootDSE Enumeration"; flow:to_server,established; content:"rootDomainNamingContext"; nocase; classtype:policy-violation; sid:9000002; rev:1;)
+
+# ── Kerberos ──────────────────────────────────────────────────
+alert udp $HOME_NET any -> $DC_NET 88 (msg:"AD-LAB Kerberos AS-REQ TGT Request"; content:"|6a|"; offset:0; depth:1; classtype:protocol-command-decode; sid:9000010; rev:1;)
+alert udp $HOME_NET any -> $DC_NET 88 (msg:"AD-LAB Kerberos AS-REQ Without Preauth (AS-REP Roasting)"; content:"|6a|"; offset:0; depth:1; content:"|1b 00|"; classtype:policy-violation; sid:9000011; rev:1;)
+
+# ── SMB ───────────────────────────────────────────────────────
+alert tcp $HOME_NET any -> $DC_NET 445 (msg:"AD-LAB SMB Tree Connect (share enumeration)"; flow:to_server,established; content:"|ff|SMB"; content:"|75|"; within:5; classtype:policy-violation; sid:9000020; rev:1;)
+alert tcp $HOME_NET any -> $DC_NET 445 (msg:"AD-LAB SMB Access to SYSVOL or NETLOGON"; flow:to_server,established; content:"SYSVOL"; nocase; classtype:policy-violation; sid:9000021; rev:1;)
+alert tcp $HOME_NET any -> $DC_NET 445 (msg:"AD-LAB SMB Access to NETLOGON"; flow:to_server,established; content:"NETLOGON"; nocase; classtype:policy-violation; sid:9000022; rev:1;)
+
+# ── DNS ───────────────────────────────────────────────────────
+alert udp $HOME_NET any -> $DC_NET 53 (msg:"AD-LAB DNS Zone Transfer AXFR Attempt"; content:"|00 FC|"; classtype:bad-unknown; sid:9000030; rev:1;)
+alert tcp $HOME_NET any -> $DC_NET 53 (msg:"AD-LAB DNS Zone Transfer AXFR via TCP"; flow:to_server,established; content:"|00 FC|"; classtype:bad-unknown; sid:9000031; rev:1;)
+
+# ── DCE/RPC ───────────────────────────────────────────────────
+alert tcp $HOME_NET any -> $DC_NET 135 (msg:"AD-LAB RPC Endpoint Mapper Query"; flow:to_server,established; content:"|05 00 0b|"; classtype:protocol-command-decode; sid:9000040; rev:1;)
+
+# ── Detección general ─────────────────────────────────────────
+alert tcp $HOME_NET any -> $DC_NET 389 (msg:"AD-LAB LDAP Multiple Rapid Connections"; flow:to_server; threshold:type both,track by_src,count 10,seconds 5; classtype:policy-violation; sid:9000050; rev:1;)

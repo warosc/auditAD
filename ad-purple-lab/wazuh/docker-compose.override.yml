@@ -1,0 +1,81 @@
+# ============================================================
+# Wazuh Manager - Override para AD Purple Lab
+#
+# DECISIÓN TÉCNICA:
+#   Se usa wazuh/wazuh-manager como contenedor standalone.
+#   NO se incluye wazuh-indexer porque el proyecto ya tiene
+#   OpenSearch 2.12.0 que cumple esa función.
+#
+# INTEGRACIÓN CON OPENSEARCH:
+#   Wazuh-manager almacena alertas en /var/ossec/logs/alerts/.
+#   Para enviarlas a OpenSearch se necesita Filebeat con el
+#   módulo Wazuh. Ver wazuh/README.md para instrucciones.
+#
+# USO:
+#   docker compose -f docker-compose.yml \
+#                  -f wazuh/docker-compose.override.yml up -d
+#
+# O agrega un alias en .env:
+#   COMPOSE_FILE=docker-compose.yml:wazuh/docker-compose.override.yml
+# ============================================================
+
+networks:
+  purple_net:
+    external: true
+
+volumes:
+  wazuh_data:
+    driver: local
+  wazuh_logs:
+    driver: local
+  wazuh_etc:
+    driver: local
+
+services:
+
+  # ──────────────────────────────────────────────────────────
+  # wazuh-manager: Recibe eventos de agentes Windows/Linux.
+  # Puerto 1514: comunicación de agentes (UDP/TCP).
+  # Puerto 1515: enrollment de nuevos agentes.
+  # Puerto 55000: API REST de Wazuh.
+  #
+  # Los eventos del DC se generan instalando wazuh-agent.msi
+  # en el Domain Controller. Ver wazuh/README.md.
+  # ──────────────────────────────────────────────────────────
+  wazuh-manager:
+    image: wazuh/wazuh-manager:4.7.3
+    container_name: wazuh-manager
+    hostname: wazuh-manager
+    environment:
+      - INDEXER_URL=https://opensearch:9200
+      - INDEXER_USERNAME=admin
+      - INDEXER_PASSWORD=admin
+      - FILEBEAT_SSL_VERIFICATION_MODE=none
+      - SSL_CERTIFICATE_AUTHORITIES=/etc/ssl/root-ca.pem
+      - SSL_CERTIFICATE=/etc/ssl/filebeat.pem
+      - SSL_KEY=/etc/ssl/filebeat.key
+      - API_USERNAME=wazuh-wui
+      - API_PASSWORD=MyS3cr37P450r.*-
+    volumes:
+      - wazuh_etc:/var/ossec/etc
+      - wazuh_data:/var/ossec/data
+      - wazuh_logs:/var/ossec/logs
+      - ./wazuh/config/ossec.conf:/wazuh-config-mount/etc/ossec.conf:ro
+      - ../logs/wazuh:/var/ossec/logs/alerts
+    ports:
+      # Agentes → Manager
+      - "1514:1514/udp"
+      - "1514:1514/tcp"
+      # Enrollment de agentes
+      - "1515:1515/tcp"
+      # API REST
+      - "55000:55000/tcp"
+    networks:
+      - purple_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "/var/ossec/bin/wazuh-control status | grep -q 'wazuh-analysisd is running'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s

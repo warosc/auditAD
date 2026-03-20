@@ -1,0 +1,31 @@
+# Tool metadata (not part of the project)
+.agentic-tools-mcp/
+.opencode/
+.claude/
+.mcp.json
+
+# Node
+ad-purple-lab/panel/frontend/node_modules/
+ad-purple-lab/panel/frontend/.next/
+ad-purple-lab/panel/frontend/out/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Data & secrets
+ad-purple-lab/secrets/*.env
+ad-purple-lab/data/
+ad-purple-lab/logs/
+ad-purple-lab/reports/
+ad-purple-lab/neo4j/data/
+*.log
+*.tar.gz
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Screenshots
+*.png

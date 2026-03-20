@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg:      #080c14;
+  --surface: #0d1117;
+  --card:    #111827;
+  --border:  #1f2937;
+}
+
+html, body {
+  background-color: var(--bg);
+  color: #e5e7eb;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* Terminal output */
+.terminal {
+  background-color: #020408;
+  color: #22c55e;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  border: 1px solid #1f2937;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #0d1117; }
+::-webkit-scrollbar-thumb { background: #374151; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #4b5563; }
+
+/* Pulse dot for status indicators */
+@keyframes soc-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+.pulse-dot { animation: soc-pulse 2s ease-in-out infinite; }

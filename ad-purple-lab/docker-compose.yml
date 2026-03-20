@@ -1,0 +1,376 @@
+# ============================================================
+# AD Purple Lab - Docker Compose
+#
+# DECISIONES TÉCNICAS:
+#   - OpenSearch 2.12.0 en lugar de Elasticsearch: licencia Apache 2.0,
+#     sin restricciones comerciales, API 100% compatible con Grafana.
+#   - Neo4j 5.18-community: edición gratuita, estable para BloodHound.
+#   - jasonish/suricata:7-latest: imagen comunitaria activamente mantenida.
+#   - Zeek: Dockerfile propio desde Ubuntu 22.04 + paquetes oficiales zeek.org
+#     (no existe imagen oficial mantenida por el proyecto Zeek en Docker Hub).
+#
+# LIMITACIÓN CRÍTICA DE CAPTURA DE TRÁFICO:
+#   Zeek y Suricata en modo bridge solo ven tráfico de su propio contenedor.
+#   Para captura real del host o de todo el lab, usar network_mode: host.
+#   Ver README sección "Captura de tráfico en Docker" para instrucciones.
+#
+# ACTIVE DIRECTORY:
+#   Este compose NO incluye un Domain Controller. Se conecta a un AD externo.
+#   Configura DC_IP y AD_DOMAIN en .env apuntando a tu DC de laboratorio.
+# ============================================================
+
+networks:
+  purple_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  neo4j_data:
+    driver: local
+  neo4j_logs:
+    driver: local
+  opensearch_data:
+    driver: local
+  grafana_data:
+    driver: local
+  zeek_logs:
+    driver: local
+  suricata_logs:
+    driver: local
+  kali_workspace:
+    driver: local
+  wazuh_data:
+    driver: local
+  wazuh_logs:
+    driver: local
+  wazuh_etc:
+    driver: local
+
+# ── Docker Secrets (modo opcional) ───────────────────────────
+# Para activar Docker secrets en lugar de variables de entorno:
+#   1. Crea: secrets/ad_password.txt  con el contenido de AD_PASSWORD
+#   2. Descomenta el bloque secrets: y los bloques secrets: en cada servicio
+#   3. En entrypoint.sh, la variable AD_PASSWORD_FILE=/run/secrets/ad_password
+#      se lee automáticamente si existe el archivo
+#   4. Ver secrets/README.md para instrucciones completas
+#
+# secrets:
+#   ad_password:
+#     file: ./secrets/ad_password.txt
+#   neo4j_password:
+#     file: ./secrets/neo4j_password.txt
+
+services:
+
+  # ──────────────────────────────────────────────────────────
+  # kali-audit: Contenedor de auditoría segura AD
+  # ──────────────────────────────────────────────────────────
+  kali-audit:
+    build:
+      context: ./kali
+      dockerfile: Dockerfile
+    container_name: kali-audit
+    hostname: kali-audit
+    env_file: .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - WORKSPACE=/workspace
+    volumes:
+      - kali_workspace:/workspace
+      - ./scripts:/workspace/scripts:ro
+      - ./reports:/workspace/reports
+      - ./logs:/workspace/logs
+      - ./data:/workspace/data
+    networks:
+      - purple_net
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    restart: unless-stopped
+    tty: true
+    stdin_open: true
+    command: ["/entrypoint.sh"]
+
+  # ──────────────────────────────────────────────────────────
+  # neo4j: Análisis de grafos para BloodHound
+  # ──────────────────────────────────────────────────────────
+  neo4j:
+    image: neo4j:5.18-community
+    container_name: neo4j
+    hostname: neo4j
+    environment:
+      - NEO4J_AUTH=${NEO4J_AUTH:-neo4j/ChangeThisNeo4jPass123!}
+      - NEO4J_server_memory_heap_initial__size=512m
+      - NEO4J_server_memory_heap_max__size=1G
+      - NEO4J_server_memory_pagecache_size=512m
+      - NEO4J_dbms_security_auth__enabled=true
+      - NEO4J_server_default__listen__address=0.0.0.0
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - ./neo4j/conf:/conf:ro
+    ports:
+      - "7474:7474"   # HTTP browser
+      - "7687:7687"   # Bolt protocol
+    networks:
+      - purple_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:7474"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ──────────────────────────────────────────────────────────
+  # opensearch: Backend de logs y alertas
+  # Seguridad deshabilitada para uso en lab aislado.
+  # Habilitar TLS + auth en producción o laboratorios expuestos.
+  # ──────────────────────────────────────────────────────────
+  opensearch:
+    image: opensearchproject/opensearch:2.12.0
+    container_name: opensearch
+    hostname: opensearch
+    environment:
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx1g
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - DISABLE_SECURITY_PLUGIN=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - purple_net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health | grep -qv '\"status\":\"red\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+
+  # ──────────────────────────────────────────────────────────
+  # opensearch-dashboards: Interfaz de visualización de logs
+  # ──────────────────────────────────────────────────────────
+  opensearch-dashboards:
+    image: opensearchproject/opensearch-dashboards:2.12.0
+    container_name: opensearch-dashboards
+    hostname: opensearch-dashboards
+    environment:
+      - OPENSEARCH_HOSTS=["http://opensearch:9200"]
+      - DISABLE_SECURITY_DASHBOARDS_PLUGIN=true
+    ports:
+      - "5601:5601"
+    networks:
+      - purple_net
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:5601/api/status | grep -q 'available' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+  # ──────────────────────────────────────────────────────────
+  # grafana: Visualización de métricas y dashboards
+  # Datasource OpenSearch provisionado automáticamente.
+  # ──────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.3.3
+    container_name: grafana
+    hostname: grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_INSTALL_PLUGINS=grafana-opensearch-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    networks:
+      - purple_net
+    depends_on:
+      opensearch:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ──────────────────────────────────────────────────────────
+  # zeek: Network Security Monitor
+  #
+  # MODO ACTUAL: bridge (ve solo tráfico del contenedor zeek)
+  # MODO HOST: para captura real del host, cambiar a:
+  #   network_mode: host
+  #   y eliminar el bloque "networks:" de este servicio.
+  #
+  # En modo bridge, zeek monitorea eth0 del contenedor.
+  # Para análisis de pcaps, copiar archivos a ./data/ y
+  # ejecutar: docker exec zeek zeek -r /workspace/data/file.pcap
+  # ──────────────────────────────────────────────────────────
+  zeek:
+    build:
+      context: ./zeek
+      dockerfile: Dockerfile
+    container_name: zeek
+    hostname: zeek
+    environment:
+      - CAPTURE_INTERFACE=${CAPTURE_INTERFACE:-eth0}
+    volumes:
+      - zeek_logs:/opt/zeek/logs
+      - ./zeek/local.zeek:/opt/zeek/share/zeek/site/local.zeek:ro
+      - ./zeek/scripts:/opt/zeek/share/zeek/site/custom:ro
+      - ./logs/zeek:/opt/zeek/logs/current
+      - ./data:/workspace/data
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    networks:
+      - purple_net
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────
+  # suricata: IDS/IPS con salida EVE JSON
+  #
+  # MODO ACTUAL: bridge (misma limitación que zeek)
+  # MODO HOST: para captura real, usar:
+  #   network_mode: host
+  #   y eliminar "networks:" de este servicio.
+  #
+  # jasonish/suricata es la imagen comunitaria más mantenida.
+  # Imagen oficial del proyecto Suricata no existe en Docker Hub.
+  # ──────────────────────────────────────────────────────────
+  suricata:
+    image: jasonish/suricata:latest
+    container_name: suricata
+    hostname: suricata
+    environment:
+      - CAPTURE_INTERFACE=${CAPTURE_INTERFACE:-eth0}
+    volumes:
+      - suricata_logs:/var/log/suricata
+      - ./suricata/suricata.yaml:/etc/suricata/suricata.yaml
+      - ./suricata/rules:/etc/suricata/rules
+      - ./logs/suricata:/var/log/suricata-out
+    command: ["-i", "eth0", "--init-errors-fatal"]
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+      - SYS_NICE
+    networks:
+      - purple_net
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────
+  # wazuh-manager: Wazuh SIEM/XDR Manager (single-node)
+  # API REST en 55000, agentes en 1514/1515.
+  # Dashboard: https://localhost:443 (usuario: admin / SecretPassword)
+  # ──────────────────────────────────────────────────────────
+  wazuh-manager:
+    image: wazuh/wazuh-manager:4.7.0
+    container_name: wazuh-manager
+    hostname: wazuh-manager
+    environment:
+      - INDEXER_URL=http://opensearch:9200
+      - INDEXER_USERNAME=admin
+      - INDEXER_PASSWORD=admin
+      - FILEBEAT_SSL_VERIFICATION_MODE=none
+      - SSL_CERTIFICATE_AUTHORITIES=/etc/ssl/root-ca.pem
+      - SSL_CERTIFICATE=/etc/ssl/filebeat.pem
+      - SSL_KEY=/etc/ssl/filebeat.key
+      - API_USERNAME=wazuh
+      - API_PASSWORD=SecretPassword1!
+    volumes:
+      - wazuh_data:/var/ossec/data
+      - wazuh_logs:/var/ossec/logs
+      - wazuh_etc:/var/ossec/etc
+      - ./wazuh/certs/root-ca.pem:/etc/ssl/root-ca.pem:ro
+      - ./wazuh/certs/filebeat.pem:/etc/ssl/filebeat.pem:ro
+      - ./wazuh/certs/filebeat.key:/etc/ssl/filebeat.key:ro
+    ports:
+      - "51514:1514/udp"
+      - "51514:1514/tcp"
+      - "51515:1515"
+      - "55000:55000"
+    networks:
+      - purple_net
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────
+  # panel-api: FastAPI backend para el SOC Admin Panel
+  # Docker SDK para control de contenedores.
+  # Expone API REST + SSE streaming en puerto 8080.
+  # ──────────────────────────────────────────────────────────
+  panel-api:
+    build:
+      context: ./panel
+      dockerfile: Dockerfile.backend
+    container_name: panel-api
+    hostname: panel-api
+    env_file: .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - REPORTS_DIR=/workspace/reports
+      - LOGS_DIR=/workspace/logs
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./reports:/workspace/reports
+      - ./logs:/workspace/logs
+      - ./panel/backend/panel.db:/app/panel.db
+    ports:
+      - "8080:8080"
+    networks:
+      - purple_net
+    depends_on:
+      - neo4j
+      - opensearch
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ──────────────────────────────────────────────────────────
+  # panel-ui: Next.js 14 frontend del SOC Admin Panel
+  # Proxy /api/* → panel-api:8080 via Next.js rewrites.
+  # ──────────────────────────────────────────────────────────
+  panel-ui:
+    build:
+      context: ./panel
+      dockerfile: Dockerfile.frontend
+    container_name: panel-ui
+    hostname: panel-ui
+    environment:
+      - NODE_ENV=production
+      - BACKEND_URL=http://panel-api:8080
+      - PORT=3001
+    ports:
+      - "3002:3001"
+    networks:
+      - purple_net
+    depends_on:
+      panel-api:
+        condition: service_healthy
+    restart: unless-stopped

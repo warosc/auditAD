@@ -1,0 +1,34 @@
+apiVersion: 1
+
+# ============================================================
+# Grafana - Datasource OpenSearch
+# Usa el plugin grafana-opensearch-datasource instalado en
+# el contenedor Grafana vía GF_INSTALL_PLUGINS.
+# ============================================================
+
+datasources:
+  - name: OpenSearch-Suricata
+    type: grafana-opensearch-datasource
+    access: proxy
+    url: http://opensearch:9200
+    isDefault: true
+    jsonData:
+      database: "suricata-*"
+      timeField: "@timestamp"
+      version: "2.12.0"
+      flavor: "opensearch"
+      logMessageField: "alert.signature"
+      logLevelField: "alert.severity"
+    editable: true
+
+  - name: OpenSearch-Zeek
+    type: grafana-opensearch-datasource
+    access: proxy
+    url: http://opensearch:9200
+    isDefault: false
+    jsonData:
+      database: "zeek-*"
+      timeField: "ts"
+      version: "2.12.0"
+      flavor: "opensearch"
+    editable: true

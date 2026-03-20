@@ -1,0 +1,247 @@
+%YAML 1.1
+---
+# ============================================================
+# Suricata - Configuración para AD Purple Lab
+# Fuente de referencia: suricata.readthedocs.io
+# Seguridad: IDS en modo pasivo (no IPS), solo detección/log.
+# ============================================================
+
+vars:
+  address-groups:
+    HOME_NET: "[192.168.0.0/16,10.0.0.0/8,172.16.0.0/12]"
+    EXTERNAL_NET: "!$HOME_NET"
+    DC_NET: "[192.168.1.0/24]"
+    HTTP_SERVERS: "$HOME_NET"
+    SMTP_SERVERS: "$HOME_NET"
+    SQL_SERVERS: "$HOME_NET"
+    DNS_SERVERS: "$DC_NET"
+    TELNET_SERVERS: "$HOME_NET"
+    AIM_SERVERS: "$EXTERNAL_NET"
+    DNP3_SERVER: "$HOME_NET"
+    DNP3_CLIENT: "$HOME_NET"
+    MODBUS_CLIENT: "$HOME_NET"
+    MODBUS_SERVER: "$HOME_NET"
+    ENIP_CLIENT: "$HOME_NET"
+    ENIP_SERVER: "$HOME_NET"
+
+  port-groups:
+    HTTP_PORTS: "80"
+    SHELLCODE_PORTS: "!80"
+    ORACLE_PORTS: 1521
+    SSH_PORTS: 22
+    DNP3_PORTS: 20000
+    MODBUS_PORTS: 502
+    FILE_DATA_PORTS: "[$HTTP_PORTS,110,143]"
+    FTP_PORTS: 21
+    VXLAN_PORT: 4789
+    TEREDO_PORTS: 3544
+
+# ── Captura de paquetes ───────────────────────────────────────
+# Usando pcap por compatibilidad con Docker.
+# Para alto rendimiento en producción, usar af-packet.
+pcap:
+  - interface: eth0
+    checksum-checks: no
+
+# ── Modo de operación ─────────────────────────────────────────
+# IDS: modo pasivo, solo alerta. No bloquea tráfico.
+runmode: autofp
+
+outputs:
+  # ── EVE JSON: log principal de alertas y eventos ──────────
+  - eve-log:
+      enabled: yes
+      filename: /var/log/suricata/eve.json
+      filetype: regular
+      rotate-interval: 1h
+      types:
+        - alert:
+            payload: yes
+            payload-buffer-size: 4kb
+            payload-printable: yes
+            packet: yes
+            metadata: yes
+            http-body: yes
+            http-body-printable: yes
+            tagged-packets: yes
+        - anomaly:
+            enabled: yes
+            types:
+              decode: yes
+              stream: yes
+              applayer: yes
+        - http:
+            extended: yes
+        - dns:
+            query: yes
+            answer: yes
+        - tls:
+            extended: yes
+        - files:
+            force-magic: no
+        - smtp: {}
+        - ssh: {}
+        - flow: {}
+        - netflow: {}
+        - krb5: {}
+        - smb: {}
+        - dcerpc: {}
+
+  # ── Log de estadísticas ────────────────────────────────────
+  - stats:
+      enabled: yes
+      filename: /var/log/suricata/stats.log
+      interval: 8
+
+  # ── Log de alertas en texto plano (legacy) ────────────────
+  - fast:
+      enabled: yes
+      filename: /var/log/suricata/fast.log
+      append: yes
+
+logging:
+  default-log-level: notice
+  outputs:
+    - console:
+        enabled: yes
+    - file:
+        enabled: yes
+        level: info
+        filename: /var/log/suricata/suricata.log
+
+# ── Configuración del motor de detección ─────────────────────
+detect:
+  profile: medium
+  custom-values:
+    toclient-groups: 3
+    toserver-groups: 25
+  sgh-mpm-context: auto
+  inspection-recursion-limit: 3000
+
+# ── Reglas ────────────────────────────────────────────────────
+# Las reglas estándar de Suricata (ET Open) se pueden descargar con:
+#   docker exec suricata suricata-update
+default-rule-path: /etc/suricata/rules
+rule-files:
+  - local.rules
+  - custom.rules
+
+# ── Configuración de streams ──────────────────────────────────
+stream:
+  memcap: 64mb
+  checksum-validation: no
+  inline: no
+  reassembly:
+    memcap: 256mb
+    depth: 1mb
+    toserver-chunk-size: 2560
+    toclient-chunk-size: 2560
+    randomize-chunk-size: yes
+
+# ── Protocolos de capa de aplicación ─────────────────────────
+app-layer:
+  protocols:
+    krb5:
+      enabled: yes
+    smb:
+      enabled: yes
+      detection-ports:
+        dp: 139, 445
+    dns:
+      tcp:
+        enabled: yes
+        detection-ports:
+          dp: 53
+      udp:
+        enabled: yes
+        detection-ports:
+          dp: 53
+    tls:
+      enabled: yes
+      detection-ports:
+        dp: 443, 636, 3269
+    http:
+      enabled: yes
+      memcap: 64mb
+    ftp:
+      enabled: yes
+    ssh:
+      enabled: yes
+    smtp:
+      enabled: yes
+    imap:
+      enabled: detection-only
+    dcerpc:
+      enabled: yes
+    ldap:
+      enabled: yes
+      detection-ports:
+        dp: 389, 3268
+
+# ── Decoder ───────────────────────────────────────────────────
+decoder:
+  teredo:
+    enabled: yes
+  vxlan:
+    enabled: yes
+
+# ── Rendimiento ───────────────────────────────────────────────
+threading:
+  set-cpu-affinity: no
+  cpu-affinity:
+    - management-cpu-set:
+        cpu: [0]
+    - receive-cpu-set:
+        cpu: [0]
+    - worker-cpu-set:
+        cpu: ["all"]
+        mode: "balanced"
+
+# ── Defrag (fragmentación IP) ─────────────────────────────────
+defrag:
+  memcap: 32mb
+  hash-size: 65536
+  trackers: 65535
+  max-frags: 65535
+  prealloc: yes
+  timeout: 60
+
+# ── Seguimiento de flujos ─────────────────────────────────────
+flow:
+  memcap: 128mb
+  hash-size: 65536
+  prealloc: 10000
+  emergency-recovery: 30
+
+flow-timeouts:
+  default:
+    new: 30
+    established: 300
+    closed: 0
+    bypassed: 100
+    emergency-new: 10
+    emergency-established: 100
+    emergency-closed: 0
+    emergency-bypassed: 50
+  tcp:
+    new: 60
+    established: 600
+    closed: 60
+    bypassed: 100
+    emergency-new: 5
+    emergency-established: 100
+    emergency-closed: 10
+    emergency-bypassed: 50
+  udp:
+    new: 30
+    established: 300
+    bypassed: 100
+    emergency-new: 10
+    emergency-established: 100
+    emergency-bypassed: 50
+
+# ── Host tracking ─────────────────────────────────────────────
+host:
+  hash-size: 4096
+  prealloc: 1000
+  memcap: 32mb

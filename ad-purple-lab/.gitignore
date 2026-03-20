@@ -1,0 +1,27 @@
+# Credenciales - NUNCA commitear
+.env
+secrets/*.txt
+secrets/*.key
+secrets/*.pem
+
+# Datos generados
+reports/
+logs/
+data/
+*.tar.gz
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Editor
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
