@@ -66,6 +66,75 @@ export interface Report {
   type:       string;
 }
 
+// ── Neo4j Graph Query types ────────────────────────────────────────────────
+
+export interface QueryParam {
+  name:        string;
+  label:       string;
+  placeholder: string;
+  required:    boolean;
+}
+
+export interface QueryDef {
+  id:          string;
+  title:       string;
+  description: string;
+  category:    string;
+  risk:        "critical" | "high" | "medium" | "low" | "info";
+  schema:      "csv" | "bloodhound" | "ntfs";
+  params:      QueryParam[];
+  cypher:      string;
+}
+
+// Standalone wrappers (also accessible via api.*)
+export const neo4jQueries = () =>
+  get<{ queries: QueryDef[] }>("/neo4j/queries").then((r) => r.queries);
+
+export const neo4jExecute = (query_id: string, params: Record<string, string> = {}) =>
+  post<QueryResult>("/neo4j/execute", { query_id, params });
+
+export interface GraphNode {
+  id:    string;
+  label: string;
+  title: string;
+  props: Record<string, unknown>;
+}
+
+export interface GraphEdge {
+  id:   string;
+  from: string;
+  to:   string;
+  type: string;
+}
+
+export interface QueryResult {
+  query_id:  string;
+  title:     string;
+  rows:      Record<string, unknown>[];
+  columns:   string[];
+  graph: {
+    nodes: GraphNode[];
+    edges: GraphEdge[];
+  };
+  count:     number;
+  has_graph: boolean;
+}
+
+export interface Neo4jStats {
+  connected: boolean;
+  error?:    string;
+  stats: {
+    total_users?:     number | null;
+    disabled_users?:  number | null;
+    no_pwd_users?:    number | null;
+    kerberoastable?:  number | null;
+    asrep_roast?:     number | null;
+    total_computers?: number | null;
+    total_groups?:    number | null;
+    legacy_os?:       number | null;
+  };
+}
+
 export interface HealthResult {
   status:         string;
   http_code?:     number;
@@ -182,6 +251,23 @@ export const api = {
       return r.json() as Promise<{ status: string }>;
     });
   },
+
+  // ── Neo4j Graph Query ─────────────────────────────────────────────────
+
+  /** Get the full Cypher query catalog */
+  neo4jQueries: () =>
+    get<{ queries: QueryDef[] }>("/neo4j/queries").then((r) => r.queries),
+
+  /** Get quick AD stats for dashboard cards */
+  neo4jStats: () => get<Neo4jStats>("/neo4j/stats"),
+
+  /** Execute a predefined query with optional params */
+  neo4jExecute: (query_id: string, params: Record<string, string> = {}) =>
+    post<QueryResult>("/neo4j/execute", { query_id, params }),
+
+  /** Get the last 100 executed queries (audit log) */
+  neo4jLog: () =>
+    get<{ log: unknown[] }>("/neo4j/log").then((r) => r.log),
 };
 
 // ── Streaming helper ───────────────────────────────────────────

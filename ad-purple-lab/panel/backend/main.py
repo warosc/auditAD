@@ -36,6 +36,9 @@ from pydantic import BaseModel
 from audit_service import AuditService
 from csv_import_service import CsvImportService
 from neo4j_import_service import Neo4jImportService
+from neo4j_query_service import Neo4jQueryService
+from shares_import_service import SharesImportService
+from ntfs_neo4j_service import NtfsNeo4jService
 from database import init_db
 from docker_service import DockerService
 from health_service import HealthService
@@ -47,16 +50,19 @@ from tomcat_scanner_service import TomcatScannerService
 
 # ── Services ───────────────────────────────────────────────────────────────
 
-docker_svc       = DockerService()
-audit_svc        = AuditService(docker_svc)
-report_svc       = ReportService()
-results_svc      = ResultsService()
-health_svc       = HealthService()
-settings_svc     = SettingsService()
-scheduler_svc    = SchedulerService()
-csv_import_svc   = CsvImportService()
-neo4j_import_svc = Neo4jImportService()
-tomcat_scan_svc  = TomcatScannerService(docker_svc)
+docker_svc        = DockerService()
+audit_svc         = AuditService(docker_svc)
+report_svc        = ReportService()
+results_svc       = ResultsService()
+health_svc        = HealthService()
+settings_svc      = SettingsService()
+scheduler_svc     = SchedulerService()
+csv_import_svc    = CsvImportService()
+shares_import_svc = SharesImportService()
+ntfs_neo4j_svc    = NtfsNeo4jService()
+neo4j_import_svc  = Neo4jImportService()
+neo4j_query_svc   = Neo4jQueryService()
+tomcat_scan_svc   = TomcatScannerService(docker_svc)
 
 audit_svc.set_settings(settings_svc)
 
@@ -116,6 +122,10 @@ class ScheduleToggleBody(BaseModel):
 class TomcatScanBody(BaseModel):
     target: str
     ports: list[int] = [443, 8443, 8080]
+
+class Neo4jExecuteBody(BaseModel):
+    query_id: str
+    params: dict[str, str] = {}
 
 # ── Health ─────────────────────────────────────────────────────────────────
 
@@ -266,6 +276,14 @@ async def audit_results_attacks():
     return results_svc.get_attack_results()
 
 # ── CSV offline import ─────────────────────────────────────────────────────
+
+@app.get("/csv/result")
+async def csv_get_cached_result():
+    """Return the last CSV analysis result cached in memory (survives page navigation)."""
+    result = csv_import_svc.get_last_result()
+    if not result:
+        raise HTTPException(status_code=404, detail="No hay análisis CSV en caché")
+    return result
 
 @app.post("/csv/analyze")
 async def csv_analyze(files: list[UploadFile] = File(...)):
@@ -508,6 +526,87 @@ async def csv_report_pdf():
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="REPORTE_RC_AD_{date}.pdf"'},
     )
+
+# ── SMB Shares + NTFS Permissions Analysis ────────────────────────────────
+
+@app.get("/shares/result")
+async def shares_get_cached():
+    """Return last cached shares analysis (survives page navigation)."""
+    result = shares_import_svc.get_last_result()
+    if not result:
+        raise HTTPException(status_code=404, detail="No hay análisis de permisos en caché")
+    return result
+
+@app.post("/shares/analyze")
+async def shares_analyze(files: list[UploadFile] = File(...)):
+    if not files:
+        raise HTTPException(status_code=400, detail="Se requiere al menos un archivo CSV.")
+    contents: dict[str, bytes] = {}
+    for f in files:
+        if not (f.filename or "").lower().endswith(".csv"):
+            continue
+        contents[f.filename or "unknown.csv"] = await f.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="Ningún archivo .csv válido recibido.")
+    return shares_import_svc.analyze(contents)
+
+# ── NTFS → Neo4j import ────────────────────────────────────────────────────
+
+@app.get("/ntfs/status")
+async def ntfs_status():
+    """Return count of Folder nodes and HAS_ACCESS rels in Neo4j."""
+    return ntfs_neo4j_svc.status()
+
+@app.post("/ntfs/import")
+async def ntfs_import(file: UploadFile = File(...)):
+    """
+    Import a single NTFS ACL CSV into Neo4j.
+    Accepts NTFS_Permissions.csv (Folder/Identity/Rights/Type/Inherited)
+    or NTFS_User_Effective.csv (User/Folder/Rights/Type/Inherited[/Via]).
+    """
+    fname = (file.filename or "upload.csv").lower()
+    if not fname.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Se requiere un archivo .csv")
+    content = await file.read()
+    result = ntfs_neo4j_svc.import_csv(file.filename or "upload.csv", content)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=422, detail=result["message"])
+    return result
+
+@app.delete("/ntfs/purge")
+async def ntfs_purge():
+    """Remove all Folder nodes and HAS_ACCESS relationships from Neo4j."""
+    return ntfs_neo4j_svc.purge()
+
+# ── Neo4j Graph Query API ──────────────────────────────────────────────────
+
+@app.get("/neo4j/queries")
+async def neo4j_queries():
+    """Return the full Cypher query catalog."""
+    return {"queries": neo4j_query_svc.get_catalog()}
+
+@app.get("/neo4j/stats")
+async def neo4j_stats():
+    """Quick AD stats for dashboard cards."""
+    return neo4j_query_svc.get_stats()
+
+@app.post("/neo4j/execute")
+async def neo4j_execute(body: Neo4jExecuteBody):
+    """Execute a predefined Cypher query with parameters."""
+    if not body.query_id:
+        raise HTTPException(status_code=400, detail="query_id is required")
+    try:
+        result = neo4j_query_svc.execute(body.query_id, body.params)
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+@app.get("/neo4j/log")
+async def neo4j_log():
+    """Return the last 100 executed queries (audit log)."""
+    return {"log": neo4j_query_svc.get_log()}
 
 # ── Lab health ─────────────────────────────────────────────────────────────
 

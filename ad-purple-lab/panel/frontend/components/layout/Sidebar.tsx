@@ -15,19 +15,25 @@ import {
   Settings,
   Search,
   Upload,
+  Share2,
+  FolderOpen,
+  Network,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
-  { href: "/",                label: "Dashboard",    icon: LayoutDashboard },
-  { href: "/audit",           label: "Auditoría AD", icon: Terminal },
-  { href: "/csv-import",      label: "Importar CSV", icon: Upload   },
-  { href: "/tomcat-scanner",  label: "Tomcat OCSP",  icon: Search   },
-  { href: "/results",         label: "Resultados",   icon: BarChart2 },
-  { href: "/containers",      label: "Contenedores", icon: Box },
-  { href: "/reports",         label: "Reportes",     icon: FileText },
-  { href: "/health",          label: "Lab Health",   icon: Activity },
-  { href: "/settings",        label: "Configuración",icon: Settings },
+  { href: "/",                label: "Dashboard",     icon: LayoutDashboard },
+  { href: "/audit",           label: "Auditoría AD",  icon: Terminal },
+  { href: "/graph",           label: "Graph Explorer",icon: Share2   },
+  { href: "/csv-import",      label: "Importar CSV",  icon: Upload   },
+  { href: "/shares",          label: "Permisos Carpetas", icon: FolderOpen },
+  { href: "/ntfs",            label: "NTFS → Neo4j",      icon: Network    },
+  { href: "/tomcat-scanner",  label: "Tomcat OCSP",   icon: Search   },
+  { href: "/results",         label: "Resultados",    icon: BarChart2 },
+  { href: "/containers",      label: "Contenedores",  icon: Box },
+  { href: "/reports",         label: "Reportes",      icon: FileText },
+  { href: "/health",          label: "Lab Health",    icon: Activity },
+  { href: "/settings",        label: "Configuración", icon: Settings },
 ];
 
 const EXTERNAL = [

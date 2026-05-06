@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useMemo } from "react";
+import { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import {
   Upload, FileText, X, Shield, Users, Monitor, Network,
   AlertTriangle, XCircle, Info, ChevronDown, ChevronUp,
@@ -229,6 +229,21 @@ export function CsvImportPanel() {
   const [purgeMode,      setPurgeMode]      = useState<"csv"|"all"|"none">("csv");
 
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Rehidratar desde el caché del backend al montar (sobrevive la navegación entre menús)
+  useEffect(() => {
+    fetch("/api/csv/result", { cache: "no-store" })
+      .then(r => r.ok ? r.json() as Promise<CsvResult> : Promise.reject())
+      .then(data => {
+        if (data?.available) {
+          setResult(data);
+          setActiveTab("findings");
+          checkNeo4j();
+        }
+      })
+      .catch(() => {}); // sin caché previo → pantalla de upload normal
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const addFiles = useCallback((incoming: FileList | File[]) => {
     const csvs = Array.from(incoming).filter(f => f.name.toLowerCase().endsWith(".csv"));
