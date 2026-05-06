@@ -60,6 +60,17 @@ EOF
 # shellcheck disable=SC1090
 source "${VENV}/bin/activate"
 
+# ── Guard de seguridad obligatorio ─────────────────────────────────────────
+# SAFE_MODE debe ser exactamente 'true'. Default 'true' → fail-closed si la
+# variable no llega inyectada desde el panel.
+if [[ "${SAFE_MODE:-true}" != "true" ]]; then
+    echo -e "${RED}[ABORT]${NC}  SAFE_MODE no es 'true'. Este script opera únicamente en laboratorio controlado." | tee -a "${REPORT_FILE}"
+    echo -e "         Establece SAFE_MODE=true en Panel → Settings → Audit Flags." | tee -a "${REPORT_FILE}"
+    exit 2
+fi
+echo -e "${GREEN}[OK]${NC}    SAFE_MODE=true — operación de solo lectura confirmada." | tee -a "${REPORT_FILE}"
+echo "" | tee -a "${REPORT_FILE}"
+
 # ── Paso 1: Identificar cuentas con SPN ───────────────────────────────────
 section "Paso 1: Enumerar cuentas de servicio con SPN"
 

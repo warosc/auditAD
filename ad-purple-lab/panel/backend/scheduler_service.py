@@ -14,11 +14,19 @@ from sqlalchemy import select
 from database import AsyncSessionLocal
 from models import ScheduledJob
 
+# Los scripts de ataque (asrep-roast, kerberoast) están INTENCIONALMENTE EXCLUIDOS:
+#   1. Requieren SAFE_MODE=true y confirmación explícita del operador.
+#   2. Ejecutados de forma desatendida generan Event ID 4769/4768 en el DC
+#      que disparan alertas SIEM — no apto para programación automática.
+#   3. Con credenciales incorrectas + ejecuciones repetidas → lockout de la
+#      cuenta de auditoría si lockoutThreshold < 10.
+# Ver: audit_service.py → ATTACK_SCRIPTS
 AUDIT_LABELS = {
-    "safe-audit":  "Auditoría completa",
-    "bloodhound":  "BloodHound collect",
-    "ldap-check":  "LDAP enumeration",
-    "dns-check":   "DNS check",
+    "safe-audit":          "Auditoría completa",
+    "bloodhound":          "BloodHound collect",
+    "ldap-check":          "LDAP enumeration",
+    "dns-check":           "DNS check",
+    "tomcat-ocsp-scan":    "Tomcat OCSP Scanner",
 }
 
 

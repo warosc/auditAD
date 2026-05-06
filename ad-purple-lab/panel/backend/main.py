@@ -21,15 +21,21 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
+import tempfile
 from contextlib import asynccontextmanager
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from audit_service import AuditService
+from csv_import_service import CsvImportService
+from neo4j_import_service import Neo4jImportService
 from database import init_db
 from docker_service import DockerService
 from health_service import HealthService
@@ -37,16 +43,20 @@ from report_service import ReportService
 from results_service import ResultsService
 from settings_service import SettingsService
 from scheduler_service import SchedulerService, AUDIT_LABELS
+from tomcat_scanner_service import TomcatScannerService
 
 # ── Services ───────────────────────────────────────────────────────────────
 
-docker_svc    = DockerService()
-audit_svc     = AuditService(docker_svc)
-report_svc    = ReportService()
-results_svc   = ResultsService()
-health_svc    = HealthService()
-settings_svc  = SettingsService()
-scheduler_svc = SchedulerService()
+docker_svc       = DockerService()
+audit_svc        = AuditService(docker_svc)
+report_svc       = ReportService()
+results_svc      = ResultsService()
+health_svc       = HealthService()
+settings_svc     = SettingsService()
+scheduler_svc    = SchedulerService()
+csv_import_svc   = CsvImportService()
+neo4j_import_svc = Neo4jImportService()
+tomcat_scan_svc  = TomcatScannerService(docker_svc)
 
 audit_svc.set_settings(settings_svc)
 
@@ -102,6 +112,10 @@ class ScheduleAddBody(BaseModel):
 
 class ScheduleToggleBody(BaseModel):
     enabled: bool
+
+class TomcatScanBody(BaseModel):
+    target: str
+    ports: list[int] = [443, 8443, 8080]
 
 # ── Health ─────────────────────────────────────────────────────────────────
 
@@ -193,6 +207,20 @@ async def audit_validate():   return _stream("validate")
 async def audit_asrep():      return _stream("asrep-roast")
 @app.post("/audit/kerberoast")
 async def audit_kerberoast(): return _stream("kerberoast")
+@app.post("/audit/tomcat-ocsp-scan")
+async def audit_tomcat_ocsp(): return _stream("tomcat-ocsp-scan")
+
+# ── Tomcat OCSP Scanner (dedicated, target-aware) ──────────────────────────
+
+@app.post("/scan/tomcat-ocsp")
+async def scan_tomcat_ocsp(body: TomcatScanBody):
+    if not body.target or not body.target.strip():
+        raise HTTPException(status_code=400, detail="target is required")
+    return StreamingResponse(
+        tomcat_scan_svc.stream_scan(body.target, body.ports),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
 
 # ── Reports ────────────────────────────────────────────────────────────────
 
@@ -236,6 +264,250 @@ async def audit_results_latest():
 @app.get("/audit/results/attacks")
 async def audit_results_attacks():
     return results_svc.get_attack_results()
+
+# ── CSV offline import ─────────────────────────────────────────────────────
+
+@app.post("/csv/analyze")
+async def csv_analyze(files: list[UploadFile] = File(...)):
+    if not files:
+        raise HTTPException(status_code=400, detail="Se requiere al menos un archivo CSV.")
+    contents: dict[str, bytes] = {}
+    for f in files:
+        if not (f.filename or "").lower().endswith(".csv"):
+            continue
+        contents[f.filename] = await f.read()
+    if not contents:
+        raise HTTPException(status_code=400, detail="Ningún archivo .csv válido recibido.")
+    return csv_import_svc.analyze(contents)
+
+# ── Neo4j integration ──────────────────────────────────────────────────────
+
+@app.get("/csv/neo4j-status")
+async def csv_neo4j_status():
+    return neo4j_import_svc.status()
+
+@app.post("/csv/neo4j-import")
+async def csv_neo4j_import(purge: str = "csv"):
+    """
+    purge=csv  — delete only ADUser/ADComputer/ADGroup/ADOU nodes (default)
+    purge=all  — delete everything in Neo4j (BloodHound data included)
+    purge=none — append without deleting existing data
+    """
+    result = csv_import_svc.get_last_result()
+    if not result:
+        raise HTTPException(
+            status_code=400,
+            detail="No hay análisis CSV en memoria. Sube y analiza los archivos primero (/csv/analyze).",
+        )
+    purged = 0
+    if purge == "all":
+        purged = neo4j_import_svc.purge_all()
+    elif purge == "csv":
+        purged = neo4j_import_svc.purge_csv_labels()
+
+    stats = neo4j_import_svc.import_data(result)
+    return {
+        "status":  "ok",
+        "purged":  purged,
+        "purge_mode": purge,
+        "imported": stats,
+    }
+
+@app.delete("/csv/neo4j-purge")
+async def csv_neo4j_purge(mode: str = "csv"):
+    """
+    mode=csv — delete only CSV-imported labels
+    mode=all — delete everything
+    """
+    if mode == "all":
+        count = neo4j_import_svc.purge_all()
+    else:
+        count = neo4j_import_svc.purge_csv_labels()
+    return {"status": "ok", "deleted": count, "mode": mode}
+
+# ── CSV PDF report ─────────────────────────────────────────────────────────
+
+_PDF_CSS = """
+body { font-family: "Liberation Sans", Arial, sans-serif; font-size: 10.5pt; color: #111; line-height: 1.45; margin: 2cm; }
+h1 { color: #3b0070; border-bottom: 3px solid #3b0070; padding-bottom: 4px; font-size: 18pt; }
+h2 { color: #5a009a; border-bottom: 1px solid #ccc; padding-bottom: 2px; font-size: 14pt; margin-top: 1.6em; }
+h3 { color: #7700bb; font-size: 12pt; margin-top: 1.2em; }
+h4 { color: #8800cc; font-size: 11pt; }
+table { border-collapse: collapse; width: 100%; margin: 0.8em 0; font-size: 9.5pt; }
+th { background: #3b0070; color: #fff; padding: 5px 7px; text-align: left; }
+td { border: 1px solid #ccc; padding: 4px 7px; }
+tr:nth-child(even) td { background: #f7f0ff; }
+code { background: #f0f0f0; padding: 1px 4px; border-radius: 2px; font-size: 0.88em; font-family: monospace; }
+blockquote { border-left: 3px solid #9b59b6; padding-left: 0.8em; color: #555; margin: 0.6em 0; }
+strong { color: #222; }
+hr { border: none; border-top: 1px solid #ccc; margin: 1.2em 0; }
+"""
+
+def _sev_label(s: str) -> str:
+    return {"critical": "🔴 CRÍTICO", "high": "🟠 ALTO", "medium": "🟡 MEDIO",
+            "low": "🟢 BAJO", "info": "⚪ INFO"}.get(s, s.upper())
+
+def _build_report_markdown(result: dict) -> str:
+    date  = datetime.now().strftime("%Y-%m-%d")
+    sc    = result.get("severity_counts", {})
+    st    = result.get("stats", {})
+    lines: list[str] = [
+        f"# Reporte de Riesgo y Cumplimiento — Active Directory",
+        f"",
+        f"**Fecha:** {date} | **Fuente:** {result.get('source','')} | **Clasificación:** CONFIDENCIAL",
+        f"",
+        f"## Resumen Ejecutivo",
+        f"",
+        f"| Métrica | Valor |",
+        f"|---|---|",
+        f"| Usuarios totales | {st.get('total_users', 0)} |",
+        f"| Usuarios activos | {st.get('active_users', 0)} |",
+        f"| Usuarios privilegiados | {st.get('privileged_users', 0)} |",
+        f"| Equipos totales | {st.get('total_computers', 0)} |",
+        f"| Controladores de dominio | {st.get('domain_controllers', 0)} |",
+        f"| Grupos totales | {st.get('total_groups', 0)} |",
+        f"| OUs totales | {st.get('total_ous', 0)} |",
+        f"",
+        f"### Distribución de Severidad",
+        f"",
+        f"| Severidad | Hallazgos |",
+        f"|---|---|",
+        f"| 🔴 Crítico | {sc.get('critical', 0)} |",
+        f"| 🟠 Alto | {sc.get('high', 0)} |",
+        f"| 🟡 Medio | {sc.get('medium', 0)} |",
+        f"| 🟢 Bajo | {sc.get('low', 0)} |",
+        f"| ⚪ Info | {sc.get('info', 0)} |",
+        f"| **Total** | **{len(result.get('findings', []))}** |",
+        f"",
+        f"## Matriz de Hallazgos",
+        f"",
+        f"| ID | Severidad | Título | MITRE | Recomendación |",
+        f"|---|---|---|---|---|",
+    ]
+    for f in result.get("findings", []):
+        lines.append(
+            f"| {f['id']} | {_sev_label(f['severity'])} | {f['title']} | `{f['mitre']}` | {f['recommendation']} |"
+        )
+    lines += ["", "### Detalle de Hallazgos", ""]
+    for f in result.get("findings", []):
+        lines += [
+            f"#### {f['id']} — {f['title']}",
+            f"**Severidad:** {_sev_label(f['severity'])} | **Categoría:** {f['category']} | **MITRE:** `{f['mitre']}`",
+            "",
+            f.get("description", ""),
+            "",
+            f"**Recomendación:** {f.get('recommendation', '')}",
+            "",
+        ]
+
+    paths = result.get("attack_paths", [])
+    if paths:
+        lines += [
+            "## Rutas de Ataque Sintetizadas",
+            "",
+            "| ID | Severidad | Título | MITRE | Cuentas Afectadas |",
+            "|---|---|---|---|---|",
+        ]
+        for ap in paths:
+            accs = ap.get("accounts", [])
+            acc_str = ", ".join(accs[:3]) + (f" +{len(accs)-3}" if len(accs) > 3 else "")
+            lines.append(
+                f"| {ap['id']} | {_sev_label(ap['severity'])} | {ap['title']} | `{ap['mitre']}` | {acc_str} |"
+            )
+        lines += ["", "### Detalle de Rutas de Ataque", ""]
+        for ap in paths:
+            chain = " → ".join(ap.get("chain", []))
+            accs  = ", ".join(ap.get("accounts", []))
+            lines += [
+                f"#### {ap['id']} — {ap['title']}",
+                f"**Severidad:** {_sev_label(ap['severity'])} | **MITRE:** `{ap['mitre']}`",
+                "",
+                f"**Cadena:** {chain}",
+                "",
+                f"**Cuentas afectadas:** {accs}" if accs else "",
+                "",
+                f"**Impacto:** {ap.get('impact', '')}",
+                "",
+                f"**Remediación:** {ap.get('fix', '')}",
+                "",
+            ]
+
+    top_risk = sorted(
+        [u for u in result.get("users", []) if not u.get("disabled") and u.get("risk_score", 0) > 0],
+        key=lambda u: u.get("risk_score", 0), reverse=True
+    )[:20]
+    if top_risk:
+        lines += [
+            "## Top Cuentas por Riesgo",
+            "",
+            "| Score | Usuario | OU | Factores de Riesgo |",
+            "|---|---|---|---|",
+        ]
+        for u in top_risk:
+            flags = ", ".join(filter(None, [
+                "AS-REP"     if u.get("no_preauth") else "",
+                "Kerberoast" if u.get("spn")        else "",
+                "NoExpira"   if u.get("no_expire")  else "",
+                "NoPwd"      if u.get("pwd_not_req") else "",
+            ]))
+            lines.append(
+                f"| {u.get('risk_score', 0)} | {u.get('sam', '')} | {u.get('ou', '—')} | {flags or '—'} |"
+            )
+        lines.append("")
+
+    lines += [
+        "---",
+        f"*Reporte generado por AD Purple Lab — Módulo de Análisis CSV ({date})*",
+    ]
+    return "\n".join(lines)
+
+
+@app.get("/csv/report/pdf")
+async def csv_report_pdf():
+    """Generate a PDF Risk & Compliance report from the last CSV analysis using pandoc + weasyprint."""
+    result = csv_import_svc.get_last_result()
+    if not result:
+        raise HTTPException(
+            status_code=404,
+            detail="No hay análisis CSV en memoria. Analiza los archivos primero (/csv/analyze).",
+        )
+
+    md_text = _build_report_markdown(result)
+    date    = datetime.now().strftime("%Y-%m-%d")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        md_path  = Path(tmp) / "report.md"
+        css_path = Path(tmp) / "style.css"
+        pdf_path = Path(tmp) / "report.pdf"
+
+        md_path.write_text(md_text, encoding="utf-8")
+        css_path.write_text(_PDF_CSS, encoding="utf-8")
+
+        proc = subprocess.run(
+            [
+                "pandoc", str(md_path),
+                "-o", str(pdf_path),
+                "--pdf-engine=weasyprint",
+                f"--css={css_path}",
+                "--standalone",
+                "--metadata", f"title=Reporte Risk & Compliance — AD {date}",
+            ],
+            capture_output=True,
+            timeout=120,
+        )
+        if proc.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error generando PDF: {proc.stderr.decode(errors='replace')}",
+            )
+
+        pdf_bytes = pdf_path.read_bytes()
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="REPORTE_RC_AD_{date}.pdf"'},
+    )
 
 # ── Lab health ─────────────────────────────────────────────────────────────
 

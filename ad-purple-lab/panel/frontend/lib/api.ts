@@ -198,11 +198,14 @@ export type StreamEvent =
 export async function streamPost(
   endpoint: string,
   onEvent: (evt: StreamEvent) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  body?: unknown,
 ): Promise<void> {
   const res = await fetch(`${BASE}${endpoint}`, {
-    method: "POST",
-    cache:  "no-store",
+    method:  "POST",
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body:    body ? JSON.stringify(body) : undefined,
+    cache:   "no-store",
     signal,
   });
 

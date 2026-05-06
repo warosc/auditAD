@@ -161,6 +161,50 @@ except Exception as e:
     sys.exit(1)
 PYEOF
     fi
+
+    # ── Política de bloqueo de cuentas ──────────────────────────────────────
+    # Un lockoutThreshold bajo + auditorías programadas con credenciales
+    # incorrectas puede bloquear la cuenta de auditoría.
+    if [[ -n "${AD_USERNAME:-}" && -n "${AD_PASSWORD:-}" && -n "${LDAP_BASE_DN:-}" ]]; then
+        echo ""
+        echo "── Política de bloqueo de cuentas del dominio ─────────────────"
+        info "Consultando lockoutThreshold y minPwdLength vía LDAP..."
+
+        LOCKOUT_RAW=$(ldapsearch -x \
+            -H "ldap://${DC_IP}:${LDAP_PORT:-389}" \
+            -D "${AD_USERNAME}@${AD_DOMAIN}" \
+            -w "${AD_PASSWORD}" \
+            -b "${LDAP_BASE_DN}" \
+            "(objectClass=domainDNS)" \
+            lockoutThreshold minPwdLength 2>/dev/null || echo "")
+
+        if [[ -z "${LOCKOUT_RAW}" ]]; then
+            warn "No se pudo consultar la política de dominio. Si las credenciales son incorrectas"
+            warn "  y hay auditorías programadas, existe riesgo de lockout de la cuenta de auditoría."
+        else
+            LOCKOUT_THRESHOLD=$(echo "${LOCKOUT_RAW}" | grep "^lockoutThreshold:" | awk '{print $2}' || echo "")
+            MIN_PWD_LEN=$(echo "${LOCKOUT_RAW}" | grep "^minPwdLength:" | awk '{print $2}' || echo "")
+
+            if [[ -z "${LOCKOUT_THRESHOLD}" ]]; then
+                warn "lockoutThreshold: no devuelto (requiere permisos de lectura sobre el objeto de dominio)"
+            elif [[ "${LOCKOUT_THRESHOLD}" -eq 0 ]]; then
+                ok "lockoutThreshold = 0 — sin bloqueo de cuentas (entorno de laboratorio confirmado)"
+            elif [[ "${LOCKOUT_THRESHOLD}" -lt 10 ]]; then
+                fail "lockoutThreshold = ${LOCKOUT_THRESHOLD} — RIESGO ALTO de lockout de la cuenta de auditoría."
+                fail "  Con auditorías programadas y credenciales incorrectas se alcanzará el límite."
+                fail "  Verifica AD_PASSWORD en Settings antes de activar el scheduler."
+                ERRORS=$((ERRORS + 1))
+            else
+                ok "lockoutThreshold = ${LOCKOUT_THRESHOLD} — margen suficiente para auditorías"
+            fi
+
+            if [[ -n "${MIN_PWD_LEN}" ]]; then
+                [[ "${MIN_PWD_LEN}" -lt 12 ]] \
+                    && warn "minPwdLength = ${MIN_PWD_LEN} — política débil (recomendado ≥14)" \
+                    || ok  "minPwdLength = ${MIN_PWD_LEN} — política aceptable"
+            fi
+        fi
+    fi
 fi
 
 # ── Herramientas disponibles ──────────────────────────────────

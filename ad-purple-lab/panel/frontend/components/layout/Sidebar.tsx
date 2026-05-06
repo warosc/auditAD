@@ -13,17 +13,21 @@ import {
   Eye,
   ExternalLink,
   Settings,
+  Search,
+  Upload,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV = [
-  { href: "/",            label: "Dashboard",    icon: LayoutDashboard },
-  { href: "/audit",       label: "Auditoría AD", icon: Terminal },
-  { href: "/results",     label: "Resultados",   icon: BarChart2 },
-  { href: "/containers",  label: "Contenedores", icon: Box },
-  { href: "/reports",     label: "Reportes",     icon: FileText },
-  { href: "/health",      label: "Lab Health",   icon: Activity },
-  { href: "/settings",    label: "Configuración",icon: Settings },
+  { href: "/",                label: "Dashboard",    icon: LayoutDashboard },
+  { href: "/audit",           label: "Auditoría AD", icon: Terminal },
+  { href: "/csv-import",      label: "Importar CSV", icon: Upload   },
+  { href: "/tomcat-scanner",  label: "Tomcat OCSP",  icon: Search   },
+  { href: "/results",         label: "Resultados",   icon: BarChart2 },
+  { href: "/containers",      label: "Contenedores", icon: Box },
+  { href: "/reports",         label: "Reportes",     icon: FileText },
+  { href: "/health",          label: "Lab Health",   icon: Activity },
+  { href: "/settings",        label: "Configuración",icon: Settings },
 ];
 
 const EXTERNAL = [

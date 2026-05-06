@@ -329,6 +329,24 @@ reports/
 
 ---
 
+## Tomcat OCSP Scanner
+
+Módulo integrado al lab como servicio Docker. Detecta versiones vulnerables de Tomcat, uso de OCSP stapling y malas configuraciones TLS.
+
+```bash
+cd tomcat-ocsp-scanner
+docker build -t tomcat-ocsp-scanner .
+# El servicio también se levanta con docker compose desde el lab
+```
+
+Salida:
+- `reports/tomcat-ocsp/report.csv`
+- `reports/tomcat-ocsp/report.json`
+
+*Desde el panel, se puede ejecutar el escáner en la sección de Auditoría AD con el botón "Scanner Tomcat OCSP".*
+
+---
+
 ## Troubleshooting
 
 ### OpenSearch no arranca (Linux)

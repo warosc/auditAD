@@ -14,16 +14,20 @@ from docker_service import DockerService
 
 KALI_CONTAINER = "kali-audit"
 
+# Scripts de técnicas ofensivas. Excluidos del scheduler. Requieren SAFE_MODE=true.
+ATTACK_SCRIPTS: frozenset[str] = frozenset({"asrep-roast", "kerberoast"})
+
 SCRIPTS: dict[str, str] = {
-    "safe-audit":   "bash /workspace/scripts/safe-audit.sh",
-    "bloodhound":   "bash /workspace/scripts/bloodhound-collect.sh",
-    "dns-check":    "bash /workspace/scripts/dns-check.sh",
-    "ldap-check":   "bash /workspace/scripts/ldap-check.sh",
-    "export":       "bash /workspace/scripts/export-logs.sh",
-    "health":       "bash /workspace/scripts/lab-health.sh",
-    "validate":     "bash /workspace/scripts/validate-env.sh",
-    "asrep-roast":  "bash /workspace/scripts/asrep-roast.sh",
-    "kerberoast":   "bash /workspace/scripts/kerberoast.sh",
+    "safe-audit":  "bash /workspace/scripts/safe-audit.sh",
+    "bloodhound":  "bash /workspace/scripts/bloodhound-collect.sh",
+    "dns-check":   "bash /workspace/scripts/dns-check.sh",
+    "ldap-check":  "bash /workspace/scripts/ldap-check.sh",
+    "export":      "bash /workspace/scripts/export-logs.sh",
+    "health":      "bash /workspace/scripts/lab-health.sh",
+    "validate":    "bash /workspace/scripts/validate-env.sh",
+    "asrep-roast": "bash /workspace/scripts/asrep-roast.sh",
+    "kerberoast":  "bash /workspace/scripts/kerberoast.sh",
+    # tomcat-ocsp-scan moved to /scan/tomcat-ocsp via TomcatScannerService
 }
 
 
@@ -62,6 +66,18 @@ class AuditService:
         yield _sse({"line": f"[panel] Launching: {cmd}\n", "type": "info"})
         if env_overrides.get("DC_IP"):
             yield _sse({"line": f"[panel] Target DC: {env_overrides['DC_IP']} ({env_overrides.get('AD_DOMAIN', '')})\n", "type": "info"})
+
+        # ── Guard de seguridad para scripts de ataque ──────────────────────
+        if script_key in ATTACK_SCRIPTS:
+            safe_mode = env_overrides.get("SAFE_MODE", "true").strip().lower()
+            if safe_mode != "true":
+                yield _sse({
+                    "line": "[ABORT] SAFE_MODE no es 'true'. Los scripts de ataque requieren SAFE_MODE=true.\n"
+                            "        Ve a Panel → Settings → Audit Flags y habilita Safe Mode.\n",
+                })
+                yield _sse({"done": True, "elapsed": 0.0})
+                return
+            yield _sse({"line": "[panel] SAFE_MODE=true — simulación de solo lectura autorizada\n", "type": "info"})
 
         q = self.docker.exec_stream(KALI_CONTAINER, cmd, env=env_overrides)
         loop = asyncio.get_event_loop()

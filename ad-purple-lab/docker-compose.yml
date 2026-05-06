@@ -94,6 +94,36 @@ services:
     command: ["/entrypoint.sh"]
 
   # ──────────────────────────────────────────────────────────
+  # tomcat-ocsp-scanner: Escáner de Tomcat / OCSP para el panel
+  # ──────────────────────────────────────────────────────────
+  tomcat-ocsp-scanner:
+    build:
+      context: ./tomcat-ocsp-scanner
+      dockerfile: Dockerfile
+    container_name: tomcat-ocsp-scanner
+    hostname: tomcat-ocsp-scanner
+    env_file: .env
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./reports/tomcat-ocsp:/app/output
+      - ./tomcat-ocsp-scanner/targets.txt:/app/targets.txt:ro
+      - ./tomcat-ocsp-scanner/config.yaml:/app/config.yaml:ro
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    networks:
+      - purple_net
+    restart: unless-stopped
+    command: ["tail", "-f", "/dev/null"]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import sys; sys.exit(0)\""]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ──────────────────────────────────────────────────────────
   # neo4j: Análisis de grafos para BloodHound
   # ──────────────────────────────────────────────────────────
   neo4j:
@@ -308,9 +338,9 @@ services:
       - ./wazuh/certs/filebeat.pem:/etc/ssl/filebeat.pem:ro
       - ./wazuh/certs/filebeat.key:/etc/ssl/filebeat.key:ro
     ports:
-      - "51514:1514/udp"
-      - "51514:1514/tcp"
-      - "51515:1515"
+      - "55114:1514/udp"
+      - "55114:1514/tcp"
+      - "55115:1515"
       - "55000:55000"
     networks:
       - purple_net

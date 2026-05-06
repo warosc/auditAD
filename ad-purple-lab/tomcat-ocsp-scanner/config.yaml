@@ -1,0 +1,58 @@
+targets_file: targets.txt
+output_csv: output/report.csv
+output_json: output/report.json
+ports:
+  - 443
+  - 8443
+  - 8080
+timeout: 5
+
+# ─── Vulnerable version ranges ────────────────────────────────────────────────
+# Each entry is [min_version, max_version] inclusive.
+# Sourced from Apache Tomcat security advisories and CVE database.
+# Last updated: 2026-04-10
+#
+# Branch 10.1.x — Tomcat Jakarta EE 9/10
+# Branch 9.0.x  — Tomcat Java EE 8
+# Branch 11.0.x — Tomcat Jakarta EE 11
+#
+# NOTE: CVE-2025-49124 only affects Windows installer; flag separately.
+# NOTE: CVE-2026-24734 affects Tomcat Native (APR connector) + Tomcat core.
+vulnerable_versions:
+  # ── 2025 CVEs (Jun–Oct 2025) ────────────────────────────────────────────
+  # CVE-2025-48988  Allocation without limits
+  - ["10.1.0",  "10.1.29"]
+  - ["9.0.0",   "9.0.99"]
+  - ["11.0.0",  "11.0.3"]
+  # CVE-2025-49124  Untrusted Search Path (Windows installer only)
+  - ["10.1.0",  "10.1.29"]
+  - ["9.0.0",   "9.0.99"]
+  # CVE-2025-49125  (session/auth related)
+  - ["10.1.0",  "10.1.29"]
+  - ["9.0.0",   "9.0.99"]
+  - ["11.0.0",  "11.0.3"]
+  # CVE-2025-53506  HTTP/2 uncontrolled resource consumption
+  - ["10.1.0",  "10.1.31"]
+  - ["9.0.0",   "9.0.101"]
+  - ["11.0.0",  "11.0.5"]
+  # CVE-2025-52520  Integer overflow multipart upload
+  - ["10.1.0",  "10.1.31"]
+  - ["9.0.0",   "9.0.101"]
+  - ["11.0.0",  "11.0.5"]
+  # CVE-2025-52434  Race condition
+  - ["10.1.0",  "10.1.31"]
+  - ["9.0.0",   "9.0.101"]
+  - ["11.0.0",  "11.0.5"]
+  # CVE-2025-48989  Improper resource shutdown / DoS
+  - ["10.1.0",  "10.1.33"]
+  - ["9.0.0",   "9.0.103"]
+  - ["11.0.0",  "11.0.7"]
+  # CVE-2025-55752  Relative path traversal (regression from bug 60013)
+  - ["10.1.0",  "10.1.36"]
+  - ["9.0.0",   "9.0.106"]
+  - ["11.0.0",  "11.0.10"]
+  # ── 2026 CVEs ─────────────────────────────────────────────────────────
+  # CVE-2026-24734  Improper Input Validation — OCSP / Tomcat Native
+  - ["10.1.0",  "10.1.49"]
+  - ["9.0.0",   "9.0.114"]
+  - ["11.0.0",  "11.0.17"]

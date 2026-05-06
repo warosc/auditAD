@@ -11,6 +11,7 @@ const TYPE_COLOR: Record<string, string> = {
   ldap:       "text-blue-400 bg-blue-400/10 border-blue-400/20",
   dns:        "text-green-400 bg-green-400/10 border-green-400/20",
   nmap:       "text-yellow-400 bg-yellow-400/10 border-yellow-400/20",
+  csv:        "text-cyan-400 bg-cyan-400/10 border-cyan-400/20",
   export:     "text-orange-400 bg-orange-400/10 border-orange-400/20",
   report:     "text-gray-400 bg-gray-400/10 border-gray-400/20",
 };

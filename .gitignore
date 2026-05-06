@@ -23,6 +23,10 @@ ad-purple-lab/neo4j/data/
 *.log
 *.tar.gz
 
+# AD exports — pueden contener datos reales del dominio
+AD_*.csv
+REPORTE_*.md
+
 # OS
 .DS_Store
 Thumbs.db

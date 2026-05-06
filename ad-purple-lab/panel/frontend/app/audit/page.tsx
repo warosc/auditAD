@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { AuditRunner } from "@/components/soc/AuditRunner";
 import { api } from "@/lib/api";
-import { Terminal, Target, AlertTriangle } from "lucide-react";
+import { Terminal, Target, AlertTriangle, Search } from "lucide-react";
 
 const RUNNERS = [
   {
@@ -116,6 +116,19 @@ export default function AuditPage() {
           <span className="text-soc-green ml-2">✓ Credenciales configuradas — listo para auditar</span>
         )}
       </div>
+
+      {/* Tomcat OCSP module shortcut */}
+      <a
+        href="/tomcat-scanner"
+        className="rounded-lg border border-cyan-500/20 bg-cyan-500/5 px-4 py-3 flex items-center gap-3 text-xs hover:bg-cyan-500/10 transition-colors"
+      >
+        <Search className="w-4 h-4 shrink-0 text-cyan-400" />
+        <div>
+          <span className="font-semibold text-cyan-400">5. Tomcat OCSP Scanner</span>
+          <span className="text-soc-dim ml-2">— Módulo independiente con target configurable (dominio / IP pública)</span>
+        </div>
+        <span className="ml-auto text-soc-dim text-[10px]">→ Ir al módulo</span>
+      </a>
 
       {/* Safety notice */}
       <div className="rounded-lg border border-soc-border bg-soc-surface/50 px-4 py-3 text-xs text-soc-dim flex gap-3">

@@ -15,6 +15,7 @@ import docker.errors
 # Containers that belong to this lab (checked in order).
 LAB_CONTAINERS = [
     "kali-audit",
+    "tomcat-ocsp-scanner",
     "neo4j",
     "opensearch",
     "opensearch-dashboards",

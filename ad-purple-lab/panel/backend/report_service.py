@@ -34,6 +34,8 @@ def _report_type(filepath: str) -> str:
         return "dns"
     if "nmap" in name:
         return "nmap"
+    if name.endswith(".csv"):
+        return "csv"
     if name.endswith(".tar.gz"):
         return "export"
     return "report"
@@ -48,7 +50,7 @@ class ReportService:
             return {"reports": [], "total": 0, "warning": f"{REPORTS_DIR} not mounted"}
 
         # Walk the reports directory
-        for pattern in ("**/*.txt", "**/*.json", "**/*.zip"):
+        for pattern in ("**/*.txt", "**/*.json", "**/*.csv", "**/*.zip"):
             for fp in glob.glob(os.path.join(REPORTS_DIR, pattern), recursive=True):
                 try:
                     st = os.stat(fp)
