@@ -275,6 +275,53 @@ async def audit_results_latest():
 async def audit_results_attacks():
     return results_svc.get_attack_results()
 
+@app.get("/audit/results/pdf")
+async def audit_results_pdf():
+    """Generate a PDF report of the latest audit findings using pandoc + weasyprint."""
+    result = results_svc.get_latest()
+    if not result.get("available"):
+        raise HTTPException(
+            status_code=404,
+            detail="No hay datos de auditoría. Ejecuta una auditoría primero.",
+        )
+
+    md_text = _build_audit_report_markdown(result)
+    date    = datetime.now().strftime("%Y-%m-%d")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        md_path  = Path(tmp) / "report.md"
+        css_path = Path(tmp) / "style.css"
+        pdf_path = Path(tmp) / "report.pdf"
+
+        md_path.write_text(md_text, encoding="utf-8")
+        css_path.write_text(_PDF_CSS, encoding="utf-8")
+
+        proc = subprocess.run(
+            [
+                "pandoc", str(md_path),
+                "-o", str(pdf_path),
+                "--pdf-engine=weasyprint",
+                f"--css={css_path}",
+                "--standalone",
+                "--metadata", f"title=Reporte de Hallazgos AD — {date}",
+            ],
+            capture_output=True,
+            timeout=120,
+        )
+        if proc.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Error generando PDF: {proc.stderr.decode(errors='replace')}",
+            )
+
+        pdf_bytes = pdf_path.read_bytes()
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="HALLAZGOS_AD_{date}.pdf"'},
+    )
+
 # ── CSV offline import ─────────────────────────────────────────────────────
 
 @app.get("/csv/result")
@@ -343,7 +390,7 @@ async def csv_neo4j_purge(mode: str = "csv"):
         count = neo4j_import_svc.purge_csv_labels()
     return {"status": "ok", "deleted": count, "mode": mode}
 
-# ── CSV PDF report ─────────────────────────────────────────────────────────
+# ── PDF helpers ───────────────────────────────────────────────────────────────
 
 _PDF_CSS = """
 body { font-family: "Liberation Sans", Arial, sans-serif; font-size: 10.5pt; color: #111; line-height: 1.45; margin: 2cm; }
@@ -360,6 +407,147 @@ blockquote { border-left: 3px solid #9b59b6; padding-left: 0.8em; color: #555; m
 strong { color: #222; }
 hr { border: none; border-top: 1px solid #ccc; margin: 1.2em 0; }
 """
+
+def _build_audit_report_markdown(result: dict) -> str:
+    date = datetime.now().strftime("%Y-%m-%d %H:%M")
+    sc   = result.get("severity_counts", {})
+    st   = result.get("stats", {})
+    pol  = result.get("policy", {})
+    findings = result.get("findings", [])
+    users    = result.get("users", [])
+    ports    = result.get("ports", [])
+
+    sev_icon = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢", "info": "⚪"}
+    sev_name = {"critical": "Crítico", "high": "Alto", "medium": "Medio", "low": "Bajo", "info": "Info"}
+
+    lines: list[str] = [
+        "# Reporte de Hallazgos — Active Directory",
+        "",
+        f"**Generado:** {date}  |  **Dominio:** {pol.get('domain', 'N/A')}  |  **Clasificación:** CONFIDENCIAL",
+        "",
+        "---",
+        "",
+        "## Resumen Ejecutivo",
+        "",
+        "| Métrica | Valor |",
+        "|---|---|",
+        f"| Usuarios totales | {st.get('total_users', 0)} |",
+        f"| Usuarios activos | {st.get('active_users', 0)} |",
+        f"| Usuarios deshabilitados | {st.get('disabled_users', 0)} |",
+        f"| Usuarios privilegiados | {st.get('privileged_users', 0)} |",
+        f"| Equipos totales | {st.get('total_computers', 0)} |",
+        f"| Controladores de dominio | {st.get('domain_controllers', 0)} |",
+        f"| Grupos totales | {st.get('total_groups', 0)} |",
+        f"| Puertos abiertos | {st.get('ports_open', 0)} |",
+        "",
+        "### Distribución de Severidad",
+        "",
+        "| Severidad | Hallazgos |",
+        "|---|---|",
+        f"| 🔴 Crítico | {sc.get('critical', 0)} |",
+        f"| 🟠 Alto | {sc.get('high', 0)} |",
+        f"| 🟡 Medio | {sc.get('medium', 0)} |",
+        f"| 🟢 Bajo | {sc.get('low', 0)} |",
+        f"| ⚪ Info | {sc.get('info', 0)} |",
+        f"| **Total** | **{len(findings)}** |",
+        "",
+    ]
+
+    # Política de dominio
+    if pol:
+        lines += [
+            "## Política de Dominio",
+            "",
+            "| Parámetro | Valor |",
+            "|---|---|",
+            f"| Longitud mínima de contraseña | {pol.get('minPwdLength', '?')} |",
+            f"| Máxima edad de contraseña | {pol.get('maxPwdAge', '?')} |",
+            f"| Historial de contraseñas | {pol.get('pwdHistoryLength', '?')} |",
+            f"| Complejidad (pwdProperties) | {pol.get('pwdProperties', '?')} |",
+            f"| Umbral de bloqueo | {pol.get('lockoutThreshold', '?')} |",
+            f"| Duración de bloqueo | {pol.get('lockoutDuration', '?')} |",
+            f"| MachineAccountQuota | {pol.get('machineAccountQuota', '?')} |",
+            f"| Nivel funcional | {pol.get('behaviorVersion', '?')} |",
+            "",
+        ]
+
+    # Matriz de hallazgos
+    lines += [
+        "## Matriz de Hallazgos",
+        "",
+        "| ID | Sev. | Categoría | Título | MITRE |",
+        "|---|---|---|---|---|",
+    ]
+    for f in findings:
+        icon = sev_icon.get(f["severity"], "")
+        name = sev_name.get(f["severity"], f["severity"])
+        lines.append(
+            f"| {f['id']} | {icon} {name} | {f['category']} | {f['title']} | `{f['mitre']}` |"
+        )
+    lines.append("")
+
+    # Detalle de hallazgos
+    lines += ["## Detalle de Hallazgos", ""]
+    for f in findings:
+        icon = sev_icon.get(f["severity"], "")
+        name = sev_name.get(f["severity"], f["severity"])
+        lines += [
+            f"### {f['id']} — {f['title']}",
+            "",
+            f"**Severidad:** {icon} {name}  |  **Categoría:** {f['category']}  |  **MITRE:** `{f['mitre']}`",
+            "",
+            f.get("description", ""),
+            "",
+            f"> **Recomendación:** {f.get('recommendation', '')}",
+            "",
+            "---",
+            "",
+        ]
+
+    # Cuentas de alto riesgo
+    asrep = [u["sam"] for u in users if u.get("no_preauth") and not u.get("disabled")]
+    kerb  = [u["sam"] for u in users if u.get("spn") and not u.get("disabled")]
+    no_exp = [u["sam"] for u in users if u.get("no_expire") and not u.get("disabled")]
+
+    if asrep or kerb:
+        lines += ["## Cuentas de Alto Riesgo Kerberos", ""]
+        if asrep:
+            lines += [
+                f"**AS-REP Roastable ({len(asrep)} cuentas):** {', '.join(asrep)}",
+                "",
+            ]
+        if kerb:
+            lines += [
+                f"**Kerberoastable ({len(kerb)} cuentas):** {', '.join(kerb[:20])}"
+                + (f" +{len(kerb)-20} más" if len(kerb) > 20 else ""),
+                "",
+            ]
+        if no_exp:
+            lines += [
+                f"**Sin expiración de contraseña ({len(no_exp)}):** {', '.join(no_exp[:15])}"
+                + (f" +{len(no_exp)-15} más" if len(no_exp) > 15 else ""),
+                "",
+            ]
+
+    # Puertos abiertos
+    open_ports = [p for p in ports if p.get("state") == "open"]
+    if open_ports:
+        lines += [
+            "## Puertos Abiertos",
+            "",
+            "| Puerto | Servicio |",
+            "|---|---|",
+        ]
+        for p in open_ports:
+            lines.append(f"| {p['port']}/tcp | {p['service']} |")
+        lines.append("")
+
+    lines += [
+        "---",
+        f"*Reporte generado por AD Purple Lab — Auditoría LDAP ({date})*",
+    ]
+    return "\n".join(lines)
+
 
 def _sev_label(s: str) -> str:
     return {"critical": "🔴 CRÍTICO", "high": "🟠 ALTO", "medium": "🟡 MEDIO",

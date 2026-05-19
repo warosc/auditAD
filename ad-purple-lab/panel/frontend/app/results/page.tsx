@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import {
   AlertTriangle, CheckCircle, XCircle, Info, Shield, Users, Monitor,
   Network, Lock, Search, RefreshCw, ChevronDown, ChevronUp,
-  Database, Activity, Zap, Key
+  Database, Activity, Zap, Key, FileDown
 } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -147,6 +147,7 @@ export default function ResultsPage() {
   const [data, setData] = useState<Results | null>(null);
   const [attacks, setAttacks] = useState<AttackResults | null>(null);
   const [loading, setLoading] = useState(true);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("findings");
   const [search, setSearch] = useState("");
   const [sevFilter, setSevFilter] = useState<string>("all");
@@ -164,6 +165,29 @@ export default function ResultsPage() {
       setData(null);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const exportPdf = async () => {
+    setPdfLoading(true);
+    try {
+      const res = await fetch("/api/audit/results/pdf");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        alert(`Error generando PDF: ${err.detail ?? res.statusText}`);
+        return;
+      }
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = `HALLAZGOS_AD_${new Date().toISOString().slice(0, 10)}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert("Error al exportar PDF");
+    } finally {
+      setPdfLoading(false);
     }
   };
 
@@ -238,9 +262,21 @@ export default function ResultsPage() {
             Datos recopilados: {data.timestamp} · {data.dump_dir}
           </p>
         </div>
-        <button onClick={load} className="flex items-center gap-2 text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-2 rounded-lg transition-colors">
-          <RefreshCw size={14} /> Actualizar
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportPdf}
+            disabled={pdfLoading}
+            className="flex items-center gap-2 text-sm bg-purple-800 hover:bg-purple-700 disabled:opacity-50 text-white px-3 py-2 rounded-lg transition-colors"
+          >
+            {pdfLoading
+              ? <RefreshCw size={14} className="animate-spin" />
+              : <FileDown size={14} />}
+            {pdfLoading ? "Generando..." : "Exportar PDF"}
+          </button>
+          <button onClick={load} className="flex items-center gap-2 text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-2 rounded-lg transition-colors">
+            <RefreshCw size={14} /> Actualizar
+          </button>
+        </div>
       </div>
 
       {/* Summary metrics */}

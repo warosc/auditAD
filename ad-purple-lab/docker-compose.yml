@@ -338,8 +338,7 @@ services:
       - ./wazuh/certs/filebeat.pem:/etc/ssl/filebeat.pem:ro
       - ./wazuh/certs/filebeat.key:/etc/ssl/filebeat.key:ro
     ports:
-      - "55114:1514/udp"
-      - "55114:1514/tcp"
+      - "55116:1514/tcp"
       - "55115:1515"
       - "55000:55000"
     networks:

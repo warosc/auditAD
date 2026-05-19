@@ -523,20 +523,27 @@ export function CsvImportPanel() {
             para análisis de seguridad sin conexión al DC.
           </p>
         </div>
-        {result && (
-          <div className="flex gap-2">
-            <button onClick={exportJson} className="flex items-center gap-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-2 rounded-lg transition-colors">
-              <Download size={14} /> JSON
-            </button>
-            <button onClick={exportPdf} disabled={pdfLoading} className="flex items-center gap-1.5 text-sm bg-purple-900 hover:bg-purple-800 disabled:opacity-60 text-purple-200 px-3 py-2 rounded-lg border border-purple-700 transition-colors">
-              {pdfLoading ? <RefreshCw size={14} className="animate-spin" /> : <FileText size={14} />}
-              {pdfLoading ? "Generando PDF…" : "Reporte R&C (PDF)"}
-            </button>
-            <button onClick={reset} className="flex items-center gap-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-2 rounded-lg transition-colors">
-              <Upload size={14} /> Nuevo análisis
-            </button>
-          </div>
-        )}
+        <div className="flex gap-2">
+          {result && (
+            <>
+              <button onClick={exportJson} className="flex items-center gap-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-2 rounded-lg transition-colors">
+                <Download size={14} /> JSON
+              </button>
+              <button onClick={reset} className="flex items-center gap-1.5 text-sm bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-2 rounded-lg transition-colors">
+                <Upload size={14} /> Nuevo análisis
+              </button>
+            </>
+          )}
+          <button
+            onClick={exportPdf}
+            disabled={pdfLoading || !result}
+            title={!result ? "Analiza un CSV primero para exportar el PDF" : "Exportar reporte PDF"}
+            className="flex items-center gap-1.5 text-sm bg-purple-900 hover:bg-purple-800 disabled:opacity-40 disabled:cursor-not-allowed text-purple-200 px-3 py-2 rounded-lg border border-purple-700 transition-colors"
+          >
+            {pdfLoading ? <RefreshCw size={14} className="animate-spin" /> : <FileText size={14} />}
+            {pdfLoading ? "Generando PDF…" : "Reporte R&C (PDF)"}
+          </button>
+        </div>
       </div>
 
       {/* ── Upload zone (visible when no result yet) ── */}
