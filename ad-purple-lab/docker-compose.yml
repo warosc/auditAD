@@ -71,6 +71,7 @@ services:
     build:
       context: ./kali
       dockerfile: Dockerfile
+      network: host
     container_name: kali-audit
     hostname: kali-audit
     env_file: .env
@@ -100,6 +101,7 @@ services:
     build:
       context: ./tomcat-ocsp-scanner
       dockerfile: Dockerfile
+      network: host
     container_name: tomcat-ocsp-scanner
     hostname: tomcat-ocsp-scanner
     env_file: .env
@@ -263,6 +265,7 @@ services:
     build:
       context: ./zeek
       dockerfile: Dockerfile
+      network: host
     container_name: zeek
     hostname: zeek
     environment:
@@ -354,6 +357,7 @@ services:
     build:
       context: ./panel
       dockerfile: Dockerfile.backend
+      network: host
     container_name: panel-api
     hostname: panel-api
     env_file: .env
