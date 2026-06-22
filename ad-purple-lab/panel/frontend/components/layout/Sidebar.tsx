@@ -18,6 +18,7 @@ import {
   Share2,
   FolderOpen,
   Network,
+  FileSpreadsheet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +31,7 @@ const NAV = [
   { href: "/ntfs",            label: "NTFS → Neo4j",      icon: Network    },
   { href: "/tomcat-scanner",  label: "Tomcat OCSP",   icon: Search   },
   { href: "/results",         label: "Resultados",    icon: BarChart2 },
+  { href: "/export",          label: "Exportar",      icon: FileSpreadsheet },
   { href: "/containers",      label: "Contenedores",  icon: Box },
   { href: "/reports",         label: "Reportes",      icon: FileText },
   { href: "/health",          label: "Lab Health",    icon: Activity },
