@@ -19,6 +19,7 @@ import {
   FolderOpen,
   Network,
   FileSpreadsheet,
+  GitBranch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +28,7 @@ const NAV = [
   { href: "/audit",           label: "Auditoría AD",  icon: Terminal },
   { href: "/graph",           label: "Graph Explorer",icon: Share2   },
   { href: "/csv-import",      label: "Importar CSV",  icon: Upload   },
+  { href: "/compare",         label: "Comparar",      icon: GitBranch },
   { href: "/shares",          label: "Permisos Carpetas", icon: FolderOpen },
   { href: "/ntfs",            label: "NTFS → Neo4j",      icon: Network    },
   { href: "/tomcat-scanner",  label: "Tomcat OCSP",   icon: Search   },
