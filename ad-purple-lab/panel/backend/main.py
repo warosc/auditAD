@@ -34,6 +34,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from audit_service import AuditService
+from audit_comparison_service import AuditComparisonService
 from baseline_service import BaselineService
 from csv_import_service import CsvImportService
 from neo4j_import_service import Neo4jImportService
@@ -54,6 +55,7 @@ from tomcat_scanner_service import TomcatScannerService
 docker_svc        = DockerService()
 audit_svc         = AuditService(docker_svc)
 baseline_svc      = BaselineService()
+comparison_svc    = AuditComparisonService()
 report_svc        = ReportService()
 results_svc       = ResultsService()
 health_svc        = HealthService()
@@ -128,6 +130,10 @@ class TomcatScanBody(BaseModel):
 class Neo4jExecuteBody(BaseModel):
     query_id: str
     params: dict[str, str] = {}
+
+class CompareBody(BaseModel):
+    baseline1_id: int
+    baseline2_id: int
 
 # ── Health ─────────────────────────────────────────────────────────────────
 
@@ -408,6 +414,56 @@ async def update_baseline(baseline_id: int, body: BaselineUpdateBody):
 async def delete_baseline(baseline_id: int):
     """Delete a baseline by ID."""
     result = await baseline_svc.delete_baseline(baseline_id)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("message"))
+    return result
+
+# ── Audit Comparison ───────────────────────────────────────────────────────
+
+@app.post("/audit/compare")
+async def compare_baselines(body: CompareBody):
+    """Compare two audit baselines."""
+    baseline1 = await baseline_svc.get_baseline(body.baseline1_id)
+    baseline2 = await baseline_svc.get_baseline(body.baseline2_id)
+
+    if not baseline1 or not baseline2:
+        raise HTTPException(status_code=404, detail="One or both baselines not found")
+
+    # Compare
+    delta = await comparison_svc.compare(baseline1, baseline2)
+
+    # Save comparison
+    saved = await comparison_svc.save_comparison(
+        body.baseline1_id,
+        body.baseline2_id,
+        baseline1.get("name", "Unknown"),
+        baseline2.get("name", "Unknown"),
+        delta,
+    )
+
+    return {
+        "status": "compared",
+        "comparison_id": saved["id"],
+        **delta,
+    }
+
+@app.get("/audit/comparisons")
+async def list_comparisons(limit: int = 20):
+    """List recent audit comparisons."""
+    return await comparison_svc.list_comparisons(limit=limit)
+
+@app.get("/audit/comparisons/{comparison_id}")
+async def get_comparison(comparison_id: int):
+    """Retrieve full comparison details by ID."""
+    comp = await comparison_svc.get_comparison(comparison_id)
+    if not comp:
+        raise HTTPException(status_code=404, detail="Comparison not found")
+    return comp
+
+@app.delete("/audit/comparisons/{comparison_id}")
+async def delete_comparison(comparison_id: int):
+    """Delete a comparison."""
+    result = await comparison_svc.delete_comparison(comparison_id)
     if result.get("status") == "error":
         raise HTTPException(status_code=400, detail=result.get("message"))
     return result

@@ -69,3 +69,24 @@ class AuditBaseline(Base):
     summary = Column(Text, default="")  # Quick stats: "users: 150, computers: 45, groups: 20"
     tags = Column(String(255), default="")  # Comma-separated tags
     is_locked = Column(Boolean, default=False)  # Prevent accidental deletion
+
+
+class AuditComparison(Base):
+    """Comparison results between two audit baselines."""
+    __tablename__ = "audit_comparisons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    baseline1_id = Column(Integer, nullable=False)  # FK to AuditBaseline
+    baseline2_id = Column(Integer, nullable=False)  # FK to AuditBaseline
+    baseline1_name = Column(String(100), nullable=False)
+    baseline2_name = Column(String(100), nullable=False)
+    comparison_type = Column(String(30), default="baseline_vs_baseline")  # "baseline_vs_baseline", "live_vs_baseline"
+    created_at = Column(DateTime, default=datetime.utcnow)
+    delta_summary = Column(Text, nullable=True)  # JSON with cached diff summary
+    user_action = Column(String(100), default="manual")  # Who/what triggered comparison
+    stats_users_added = Column(Integer, default=0)
+    stats_users_removed = Column(Integer, default=0)
+    stats_users_modified = Column(Integer, default=0)
+    stats_computers_added = Column(Integer, default=0)
+    stats_computers_removed = Column(Integer, default=0)
+    stats_groups_modified = Column(Integer, default=0)
