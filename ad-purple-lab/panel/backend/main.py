@@ -34,6 +34,7 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from audit_service import AuditService
+from baseline_service import BaselineService
 from csv_import_service import CsvImportService
 from neo4j_import_service import Neo4jImportService
 from neo4j_query_service import Neo4jQueryService
@@ -52,6 +53,7 @@ from tomcat_scanner_service import TomcatScannerService
 
 docker_svc        = DockerService()
 audit_svc         = AuditService(docker_svc)
+baseline_svc      = BaselineService()
 report_svc        = ReportService()
 results_svc       = ResultsService()
 health_svc        = HealthService()
@@ -344,6 +346,71 @@ async def csv_analyze(files: list[UploadFile] = File(...)):
     if not contents:
         raise HTTPException(status_code=400, detail="Ningún archivo .csv válido recibido.")
     return csv_import_svc.analyze(contents)
+
+# ── Audit Baselines (CSV/Live snapshots) ────────────────────────────────────
+
+class BaselineSaveBody(BaseModel):
+    name: str
+    source: str = "csv"
+    audit_type: str | None = None
+    tags: str = ""
+
+class BaselineUpdateBody(BaseModel):
+    name: str | None = None
+    tags: str | None = None
+    is_locked: bool | None = None
+
+@app.post("/audit/baselines/save")
+async def save_baseline(body: BaselineSaveBody):
+    """Save current CSV analysis as a reusable baseline."""
+    result = csv_import_svc.get_last_result()
+    if not result:
+        raise HTTPException(
+            status_code=400,
+            detail="No hay análisis CSV en memoria. Sube y analiza los archivos primero.",
+        )
+    saved = await baseline_svc.save_baseline(
+        name=body.name,
+        parsed_data=result,
+        source=body.source,
+        audit_type=body.audit_type,
+        tags=body.tags,
+    )
+    return {"status": "saved", **saved}
+
+@app.get("/audit/baselines")
+async def list_baselines(limit: int = 50):
+    """List all saved audit baselines."""
+    return await baseline_svc.list_baselines(limit=limit)
+
+@app.get("/audit/baselines/{baseline_id}")
+async def get_baseline(baseline_id: int):
+    """Retrieve full baseline data by ID."""
+    baseline = await baseline_svc.get_baseline(baseline_id)
+    if not baseline:
+        raise HTTPException(status_code=404, detail="Baseline not found")
+    return baseline
+
+@app.patch("/audit/baselines/{baseline_id}")
+async def update_baseline(baseline_id: int, body: BaselineUpdateBody):
+    """Update baseline metadata."""
+    result = await baseline_svc.update_baseline(
+        baseline_id,
+        name=body.name,
+        tags=body.tags,
+        is_locked=body.is_locked,
+    )
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("message"))
+    return result
+
+@app.delete("/audit/baselines/{baseline_id}")
+async def delete_baseline(baseline_id: int):
+    """Delete a baseline by ID."""
+    result = await baseline_svc.delete_baseline(baseline_id)
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("message"))
+    return result
 
 # ── Neo4j integration ──────────────────────────────────────────────────────
 

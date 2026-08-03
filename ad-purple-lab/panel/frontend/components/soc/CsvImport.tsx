@@ -221,6 +221,13 @@ export function CsvImportPanel() {
     setFilters(f => ({ ...f, [tab]: { ...(f as Record<string, Record<string, string>>)[tab], [key]: val } }));
   const [dragging,   setDragging]   = useState(false);
 
+  // Baseline state
+  const [baselineLoading,   setBaselineLoading]   = useState(false);
+  const [baselineError,     setBaselineError]     = useState<string | null>(null);
+  const [showBaselineModal, setShowBaselineModal] = useState(false);
+  const [baselineName,      setBaselineName]      = useState("");
+  const [baselineTags,      setBaselineTags]      = useState("");
+
   // Neo4j state
   const [neo4jStatus,    setNeo4jStatus]    = useState<{connected: boolean; counts?: Record<string,number>; error?: string} | null>(null);
   const [neo4jLoading,   setNeo4jLoading]   = useState(false);
@@ -365,6 +372,41 @@ export function CsvImportPanel() {
       alert(`Error: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setPdfLoading(false);
+    }
+  };
+
+  const saveBaseline = async () => {
+    if (!result || !baselineName.trim()) {
+      setBaselineError("El nombre del baseline es requerido");
+      return;
+    }
+    setBaselineLoading(true);
+    setBaselineError(null);
+    try {
+      const res = await fetch("/api/audit/baselines/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: baselineName.trim(),
+          source: "csv",
+          tags: baselineTags.trim(),
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: res.statusText }));
+        throw new Error(err.detail ?? `Error ${res.status}`);
+      }
+      const data = await res.json();
+      setShowBaselineModal(false);
+      setBaselineName("");
+      setBaselineTags("");
+      alert(`✓ Baseline guardado: ${data.name}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setBaselineError(msg);
+      alert(`Error: ${msg}`);
+    } finally {
+      setBaselineLoading(false);
     }
   };
 
@@ -542,6 +584,15 @@ export function CsvImportPanel() {
           >
             {pdfLoading ? <RefreshCw size={14} className="animate-spin" /> : <FileText size={14} />}
             {pdfLoading ? "Generando PDF…" : "Reporte R&C (PDF)"}
+          </button>
+          <button
+            onClick={() => setShowBaselineModal(true)}
+            disabled={baselineLoading || !result}
+            title={!result ? "Analiza un CSV primero para guardar baseline" : "Guardar análisis como baseline para comparación"}
+            className="flex items-center gap-1.5 text-sm bg-blue-900 hover:bg-blue-800 disabled:opacity-40 disabled:cursor-not-allowed text-blue-200 px-3 py-2 rounded-lg border border-blue-700 transition-colors"
+          >
+            {baselineLoading ? <RefreshCw size={14} className="animate-spin" /> : <GitBranch size={14} />}
+            {baselineLoading ? "Guardando…" : "Guardar Baseline"}
           </button>
         </div>
       </div>
@@ -1444,6 +1495,88 @@ export function CsvImportPanel() {
             </div>
           </details>
         </div>
+
+        {/* Modal: Save Baseline */}
+        {showBaselineModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-zinc-900 rounded-lg border border-zinc-700 w-full max-w-md">
+              <div className="flex items-center justify-between p-4 border-b border-zinc-700">
+                <div className="flex items-center gap-2">
+                  <GitBranch size={18} className="text-blue-400" />
+                  <h2 className="text-lg font-bold text-zinc-100">Guardar Baseline</h2>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowBaselineModal(false);
+                    setBaselineError(null);
+                  }}
+                  className="text-zinc-500 hover:text-zinc-300"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="p-4 space-y-4">
+                {baselineError && (
+                  <div className="bg-red-900/30 border border-red-700 rounded px-3 py-2 text-sm text-red-200">
+                    {baselineError}
+                  </div>
+                )}
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Nombre del baseline
+                  </label>
+                  <input
+                    type="text"
+                    value={baselineName}
+                    onChange={(e) => setBaselineName(e.target.value)}
+                    placeholder="p.ej. AD Snapshot 2024-08-03"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-300 mb-2">
+                    Tags (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={baselineTags}
+                    onChange={(e) => setBaselineTags(e.target.value)}
+                    placeholder="p.ej. producción, octubre2024"
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-100 text-sm focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2 p-4 border-t border-zinc-700">
+                <button
+                  onClick={() => {
+                    setShowBaselineModal(false);
+                    setBaselineError(null);
+                  }}
+                  className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 px-3 py-2 rounded transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={saveBaseline}
+                  disabled={baselineLoading || !baselineName.trim()}
+                  className="flex-1 flex items-center justify-center gap-2 bg-blue-900 hover:bg-blue-800 disabled:opacity-40 disabled:cursor-not-allowed text-blue-200 px-3 py-2 rounded transition-colors"
+                >
+                  {baselineLoading ? (
+                    <>
+                      <RefreshCw size={14} className="animate-spin" />
+                      Guardando…
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle size={14} />
+                      Guardar
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
       </>)}
     </div>

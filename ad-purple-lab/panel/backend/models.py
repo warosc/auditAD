@@ -52,3 +52,20 @@ class ScheduledJob(Base):
     last_run = Column(DateTime, nullable=True)
     next_run = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class AuditBaseline(Base):
+    """Saved CSV or live audit snapshots for comparison."""
+    __tablename__ = "audit_baselines"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    source = Column(String(20), default="csv")  # "csv" or "live_audit"
+    audit_type = Column(String(50), nullable=True)  # "safe-audit", "ldap-check", etc
+    created_at = Column(DateTime, default=datetime.utcnow)
+    imported_at = Column(DateTime, nullable=True)
+    parsed_data = Column(Text, nullable=True)  # JSON serialized result
+    file_count = Column(Integer, default=0)
+    summary = Column(Text, default="")  # Quick stats: "users: 150, computers: 45, groups: 20"
+    tags = Column(String(255), default="")  # Comma-separated tags
+    is_locked = Column(Boolean, default=False)  # Prevent accidental deletion
